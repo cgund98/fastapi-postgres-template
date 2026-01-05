@@ -1,2 +1,1 @@
 """Invoice event consumer tests."""
-

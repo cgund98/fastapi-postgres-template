@@ -71,4 +71,3 @@ async def test_invoice_paid_handler_wrong_type(
 
     with pytest.raises(TypeError):
         await invoice_paid_handler.handle(wrong_event)
-

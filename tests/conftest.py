@@ -142,7 +142,8 @@ def invoice_paid_handler() -> InvoicePaidEventHandler:
 
 
 @pytest.fixture
-def invoice_payment_requested_handler() -> InvoicePaymentRequestedHandler:
+def invoice_payment_requested_handler(
+    mock_event_publisher: EventPublisher,
+) -> InvoicePaymentRequestedHandler:
     """Get an invoice payment requested handler for testing."""
-    return InvoicePaymentRequestedHandler()
-
+    return InvoicePaymentRequestedHandler(mock_event_publisher)

@@ -317,4 +317,3 @@ async def test_delete_invoices_by_user_id(
 
     # Verify repository was called
     mock_invoice_repository.delete_by_user_id.assert_called_once_with(str(user_id))
-

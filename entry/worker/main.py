@@ -26,6 +26,7 @@ from app.domain.user.events.user_events import UserCreatedEvent, UserUpdatedEven
 from app.infrastructure.messaging.base import BaseEvent
 from app.infrastructure.messaging.consumer import SQSConsumer, SQSConsumerConfig
 from app.infrastructure.messaging.handler import EventHandler
+from app.infrastructure.messaging.publisher import EventPublisher, SNSPublisher
 from app.infrastructure.postgres.pool import PostgresPool
 from app.observability.logging import get_logger, setup_logging
 
@@ -41,14 +42,16 @@ EVENT_CLASSES: dict[str, type[BaseEvent]] = {
     InvoiceEventType.PAID: InvoicePaidEvent,
 }
 
-# Event handler registry - instantiate handlers here so they can be stateful
-EVENT_HANDLERS: dict[str, EventHandler] = {
-    UserEventType.CREATED: cast(EventHandler, UserCreatedEventHandler()),
-    UserEventType.UPDATED: cast(EventHandler, UserUpdatedEventHandler()),
-    InvoiceEventType.CREATED: cast(EventHandler, InvoiceCreatedEventHandler()),
-    InvoiceEventType.PAYMENT_REQUESTED: cast(EventHandler, InvoicePaymentRequestedHandler()),
-    InvoiceEventType.PAID: cast(EventHandler, InvoicePaidEventHandler()),
-}
+
+def create_event_handlers(event_publisher: EventPublisher) -> dict[str, EventHandler]:
+    """Create event handlers with their dependencies."""
+    return {
+        UserEventType.CREATED: cast(EventHandler, UserCreatedEventHandler()),
+        UserEventType.UPDATED: cast(EventHandler, UserUpdatedEventHandler()),
+        InvoiceEventType.CREATED: cast(EventHandler, InvoiceCreatedEventHandler()),
+        InvoiceEventType.PAYMENT_REQUESTED: cast(EventHandler, InvoicePaymentRequestedHandler(event_publisher)),
+        InvoiceEventType.PAID: cast(EventHandler, InvoicePaidEventHandler()),
+    }
 
 
 def deserialize_event(event_type: str, event_data: dict[str, Any]) -> BaseEvent:
@@ -62,9 +65,9 @@ def deserialize_event(event_type: str, event_data: dict[str, Any]) -> BaseEvent:
     return event_class(**event_data)
 
 
-async def consume_queue(event_type: str, queue_url: str) -> None:
+async def consume_queue(event_type: str, queue_url: str, event_handlers: dict[str, EventHandler]) -> None:
     """Consume events from a specific queue for a specific event type."""
-    handler = EVENT_HANDLERS.get(event_type)
+    handler = event_handlers.get(event_type)
     if not handler:
         logger.warning("No handler found for event type, skipping queue", event_type=event_type, queue_url=queue_url)
         return
@@ -146,6 +149,16 @@ async def main() -> None:
     await PostgresPool.create_pool(settings)
     logger.info("Database pool initialized")
 
+    # Create event publisher for handlers that need it
+    topic_arn = settings.default_event_topic_arn
+    if not topic_arn:
+        raise ValueError("Default event topic ARN must be configured")
+    sns_publisher = SNSPublisher(settings, topic_arn)
+    event_publisher = EventPublisher(sns_publisher)
+
+    # Create event handlers with dependencies
+    event_handlers = create_event_handlers(event_publisher)
+
     # Get queue URLs from settings
     queue_urls = settings.event_queue_urls
     if not queue_urls:
@@ -159,7 +172,7 @@ async def main() -> None:
         if not queue_url:
             logger.warning("Skipping event type with empty queue URL", event_type=event_type)
             continue
-        task = asyncio.create_task(consume_queue(event_type, queue_url))
+        task = asyncio.create_task(consume_queue(event_type, queue_url, event_handlers))
         tasks.append(task)
 
     if not tasks:

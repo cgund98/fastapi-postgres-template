@@ -44,10 +44,11 @@ async def test_invoice_payment_requested_handler(
 
     event = InvoicePaymentRequestedEvent(aggregate_id=str(invoice_id))
 
-    with patch("app.domain.billing.invoice.consumers.payment_requested.PostgresPool") as mock_pool_class, \
-         patch("app.domain.billing.invoice.consumers.payment_requested.PostgresTransactionManager") as mock_tx_class, \
-         patch("app.domain.billing.invoice.consumers.payment_requested.InvoiceService", return_value=mock_service):
-
+    with (
+        patch("app.domain.billing.invoice.consumers.payment_requested.PostgresPool") as mock_pool_class,
+        patch("app.domain.billing.invoice.consumers.payment_requested.PostgresTransactionManager") as mock_tx_class,
+        patch("app.domain.billing.invoice.consumers.payment_requested.InvoiceService", return_value=mock_service),
+    ):
         mock_pool_class.get_pool.return_value = mock_pool
         mock_tx_manager = MagicMock()
         mock_tx_manager._released = False
@@ -75,4 +76,3 @@ async def test_invoice_payment_requested_handler_wrong_type(
 
     with pytest.raises(TypeError):
         await invoice_payment_requested_handler.handle(wrong_event)
-

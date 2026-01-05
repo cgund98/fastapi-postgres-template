@@ -2,23 +2,25 @@
 
 from uuid import UUID
 
-from app.config.settings import get_settings
 from app.domain.billing.invoice.events.constants import InvoiceEventType
 from app.domain.billing.invoice.events.invoice_events import InvoicePaymentRequestedEvent
 from app.domain.billing.invoice.repo.pg import InvoiceRepository
 from app.domain.billing.invoice.service import InvoiceService
 from app.infrastructure.messaging.base import BaseEvent
-from app.infrastructure.messaging.publisher import EventPublisher, SNSPublisher
+from app.infrastructure.messaging.publisher import EventPublisher
 from app.infrastructure.postgres.pool import PostgresPool
 from app.infrastructure.postgres.transaction import PostgresTransactionManager
 from app.observability.logging import get_logger
 
 logger = get_logger(__name__)
-settings = get_settings()
 
 
 class InvoicePaymentRequestedHandler:
     """Handler for invoice.payment_requested events."""
+
+    def __init__(self, event_publisher: EventPublisher) -> None:
+        """Initialize handler with event publisher."""
+        self._event_publisher = event_publisher
 
     async def handle(self, event: BaseEvent) -> None:
         """Handle invoice.payment_requested event."""
@@ -38,14 +40,7 @@ class InvoicePaymentRequestedHandler:
         tx_manager = PostgresTransactionManager(connection)
         repository = InvoiceRepository(connection)
 
-        # Create event publisher for publishing InvoicePaidEvent
-        topic_arn = settings.default_event_topic_arn
-        if not topic_arn:
-            raise ValueError("Default event topic ARN must be configured")
-        sns_publisher = SNSPublisher(settings, topic_arn)
-        event_publisher = EventPublisher(sns_publisher)
-
-        service = InvoiceService(repository, tx_manager, event_publisher)
+        service = InvoiceService(repository, tx_manager, self._event_publisher)
 
         try:
             # Mark invoice as paid (this will publish InvoicePaidEvent)

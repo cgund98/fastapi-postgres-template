@@ -293,4 +293,3 @@ async def test_delete_user_not_found(
 
     assert exc_info.value.entity_type == "User"
     mock_user_repository.get_by_id.assert_called_once_with(user_id)
-

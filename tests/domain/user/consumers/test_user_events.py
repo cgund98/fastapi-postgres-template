@@ -62,4 +62,3 @@ async def test_user_updated_handler_wrong_type(
 
     with pytest.raises(TypeError):
         await user_updated_handler.handle(wrong_event)
-
