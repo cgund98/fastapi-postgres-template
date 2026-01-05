@@ -42,20 +42,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: app_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -66,38 +52,23 @@ jobs:
       - name: Install dependencies
         run: poetry install
       - name: Run tests
-        env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DATABASE: app_test
         run: poetry run pytest
 
   build:
-    name: Build Docker Images
+    name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [lint, type-check, test]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build API image
+      - name: Build shared app image (API and Worker)
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./resources/docker/api.Dockerfile
+          file: ./resources/docker/app.Dockerfile
           push: false
-          tags: app-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Build Worker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./resources/docker/worker.Dockerfile
-          push: false
-          tags: app-worker:latest
+          tags: app:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
