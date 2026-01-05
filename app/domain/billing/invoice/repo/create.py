@@ -10,6 +10,7 @@ from uuid import UUID
 class CreateInvoice:
     """Data structure for creating a new invoice."""
 
+    id: UUID
     user_id: UUID
     amount: Decimal
     created_at: datetime

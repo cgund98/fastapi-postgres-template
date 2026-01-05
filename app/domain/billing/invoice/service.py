@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+from uuid_extensions import uuid7
+
 from app.domain.billing.invoice.events.invoice_events import (
     InvoiceCreatedEvent,
     InvoicePaidEvent,
@@ -34,9 +36,12 @@ class InvoiceService:
     async def create_invoice(self, user_id: UUID, amount: Decimal) -> Invoice:
         """Create a new invoice."""
         async with self._tx_manager.transaction():
-            # Set timestamps
+            # Generate V7 UUID (timestamp-centric) and timestamps
+            invoice_id = uuid7()
             now = datetime.now()
-            create_invoice = CreateInvoice(user_id=user_id, amount=amount, created_at=now, updated_at=now)
+            create_invoice = CreateInvoice(
+                id=invoice_id, user_id=user_id, amount=amount, created_at=now, updated_at=now
+            )
             invoice = await self._repo.create(create_invoice)
 
             # Publish event (after commit)

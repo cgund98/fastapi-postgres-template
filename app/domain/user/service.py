@@ -23,7 +23,7 @@ class UserService:
         repository: UserRepository,
         transaction_manager: TransactionManager,
         event_publisher: EventPublisher,
-        invoice_service: InvoiceService | None = None,
+        invoice_service: InvoiceService,
     ) -> None:
         """Initialize user service."""
         self._repo = repository
@@ -103,8 +103,7 @@ class UserService:
 
             # Delete associated invoices if invoice service is available
             # Use internal method to avoid nested transactions
-            if self._invoice_service is not None:
-                await self._invoice_service._delete_invoices_by_user_id_in_transaction(user.id)
+            await self._invoice_service._delete_invoices_by_user_id_in_transaction(user.id)
 
             # Delete the user
             await self._repo.delete(user_id)

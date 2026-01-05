@@ -2,7 +2,6 @@
 
 import asyncpg
 from asyncpg.pool import PoolConnectionProxy
-from uuid_extensions import uuid7str
 
 from app.domain.billing.invoice.model import Invoice, InvoiceStatus
 from app.domain.billing.invoice.repo.create import CreateInvoice
@@ -17,15 +16,13 @@ class InvoiceRepository:
 
     async def create(self, create_invoice: CreateInvoice) -> Invoice:
         """Create a new invoice."""
-        # Generate V7 UUID (timestamp-centric)
-        invoice_id = uuid7str()
         row = await self._conn.fetchrow(
             """
             INSERT INTO invoices (id, user_id, amount, status, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, user_id, amount, status, created_at, paid_at, updated_at
             """,
-            invoice_id,
+            str(create_invoice.id),
             str(create_invoice.user_id),
             create_invoice.amount,
             InvoiceStatus.PENDING.value,
