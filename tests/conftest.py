@@ -12,10 +12,10 @@ from app.domain.billing.invoice.consumers.invoice_events import (
     InvoicePaidEventHandler,
 )
 from app.domain.billing.invoice.consumers.payment_requested import InvoicePaymentRequestedHandler
-from app.domain.billing.invoice.repo.pg import InvoiceRepository
+from app.domain.billing.invoice.repo.sql import InvoiceRepository
 from app.domain.billing.invoice.service import InvoiceService
 from app.domain.user.consumers.user_events import UserCreatedEventHandler, UserUpdatedEventHandler
-from app.domain.user.repo.pg import UserRepository
+from app.domain.user.repo.sql import UserRepository
 from app.domain.user.service import UserService
 from app.infrastructure.db.transaction import TransactionManager
 from app.infrastructure.messaging.publisher import EventPublisher
@@ -63,6 +63,7 @@ def mock_user_repository() -> UserRepository:
     mock_repo.get_by_id = AsyncMock()
     mock_repo.get_by_email = AsyncMock()
     mock_repo.update = AsyncMock()
+    mock_repo.update_partial = AsyncMock()
     mock_repo.delete = AsyncMock()
     mock_repo.list = AsyncMock()
     mock_repo.count = AsyncMock()

@@ -35,3 +35,7 @@ class DatabaseError(RepositoryError):
     """Raised when a database operation fails."""
 
     pass
+
+
+class NoFieldsToUpdateError(DatabaseError):
+    """Raised when no fields to update."""

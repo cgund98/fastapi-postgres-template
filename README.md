@@ -39,7 +39,7 @@ This template is designed for **backend engineers** building:
 ### 🛠️ Technology Choices
 
 - **FastAPI**: Modern, high-performance web framework with automatic API documentation
-- **PostgreSQL**: Raw SQL and query builders (no ORM) for maximum control and performance
+- **PostgreSQL**: SQLAlchemy Core query builders (no ORM) for type-safe, composable SQL queries
 - **Async/Await**: Fully asynchronous Python for optimal I/O-bound performance
 - **Type Safety**: Comprehensive type hints with mypy for compile-time error detection
 
@@ -67,12 +67,13 @@ This template follows a **3-tier architecture** with clear separation of concern
 ### Domain Layer (`app/domain/`)
 - **Models**: Domain entities with business logic
 - **Services**: Domain-specific business logic with integrated transaction management
-- **Repositories**: Data access interfaces (PostgreSQL implementations)
+- **Repositories**: Data access interfaces using SQLAlchemy Core query builders
+- **Persistence**: Query builder functions (`persistence/queries.py`) and table definitions (`persistence/table.py`)
 - **Events**: Domain events for event-driven communication
 - **Consumers**: Event handlers for processing domain events
 
 ### Infrastructure Layer (`app/infrastructure/`)
-- **Database**: PostgreSQL connection pooling and transaction management
+- **Database**: SQLAlchemy async connection pooling and transaction management
 - **Messaging**: Event publishing (SNS) and consumption (SQS)
 - **Tasks**: Async task execution helpers
 
@@ -96,8 +97,11 @@ fastapi-postgres-template/
 │   ├── domain/
 │   │   ├── user/                   # User domain
 │   │   │   ├── model.py
+│   │   │   ├── persistence/       # SQLAlchemy Core query builders
+│   │   │   │   ├── table.py        # Table definitions
+│   │   │   │   └── queries.py      # Query builder functions
 │   │   │   ├── events/
-│   │   │   ├── repo/
+│   │   │   ├── repo/               # Repository implementations
 │   │   │   ├── service.py
 │   │   │   └── consumers/
 │   │   │
@@ -109,7 +113,7 @@ fastapi-postgres-template/
 │   │
 │   ├── infrastructure/
 │   │   ├── db/                     # Transaction manager interface
-│   │   ├── postgres/               # Postgres implementation
+│   │   ├── postgres/               # SQLAlchemy connection pool
 │   │   ├── messaging/              # Event publishing/consumption
 │   │   └── tasks/                  # Task execution
 │   │
@@ -228,6 +232,40 @@ poetry run pytest
 ```
 
 The test suite uses mocked dependencies for fast, isolated unit tests. All service tests mock repositories and transaction managers, ensuring tests run quickly without requiring a database connection.
+
+### 🔧 Query Builder Pattern
+
+Repositories use **SQLAlchemy Core query builders** defined in `persistence/queries.py`. This provides:
+
+- **Type Safety**: Query builders return typed query objects (`Select`, `Insert`, `Update`, `Delete`)
+- **Composability**: Queries can be built programmatically and reused across repositories
+- **Performance**: Direct SQL generation without ORM overhead
+- **Flexibility**: Full control over SQL while maintaining type safety
+
+**Example query builder:**
+```python
+# In app/domain/user/persistence/queries.py
+def select_user_by_id() -> "Select":
+    """Create a SELECT query to get a user by ID."""
+    return select(
+        users_table.c.id,
+        users_table.c.email,
+        users_table.c.name,
+        users_table.c.age,
+        users_table.c.created_at,
+        users_table.c.updated_at,
+    ).where(users_table.c.id == bindparam("user_id"))
+```
+
+**Usage in repository:**
+```python
+# In app/domain/user/repo/sql.py
+async def get_by_id(self, user_id: UUID) -> User | None:
+    stmt = select_user_by_id()
+    result = await self._conn.execute(stmt, {"user_id": str(user_id)})
+    row = result.first()
+    return User(**row._mapping) if row else None
+```
 
 ## 💼 Example Business Case
 

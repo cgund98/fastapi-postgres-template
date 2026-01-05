@@ -27,7 +27,7 @@ from app.infrastructure.messaging.base import BaseEvent
 from app.infrastructure.messaging.consumer import SQSConsumer, SQSConsumerConfig
 from app.infrastructure.messaging.handler import EventHandler
 from app.infrastructure.messaging.publisher import EventPublisher, SNSPublisher
-from app.infrastructure.postgres.pool import PostgresPool
+from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
 from app.observability.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -145,9 +145,9 @@ async def main() -> None:
     setup_logging(settings)
     logger.info("Starting event consumer worker", environment=settings.environment)
 
-    # Initialize database pool
-    await PostgresPool.create_pool(settings)
-    logger.info("Database pool initialized")
+    # Initialize SQLAlchemy database engine
+    SQLAlchemyPool.create_engine(settings)
+    logger.info("Database engine initialized")
 
     # Create event publisher for handlers that need it
     topic_arn = settings.default_event_topic_arn

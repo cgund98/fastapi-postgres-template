@@ -1,5 +1,6 @@
 """Invoice domain model."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -27,3 +28,14 @@ class Invoice(BaseModel):
     paid_at: datetime | None = None
 
     model_config = {"frozen": True}
+
+
+@dataclass
+class CreateInvoice:
+    """Data structure for creating a new invoice."""
+
+    id: UUID
+    user_id: UUID
+    amount: Decimal
+    created_at: datetime
+    updated_at: datetime

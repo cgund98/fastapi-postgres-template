@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app.config.settings import get_settings
 from app.domain.exceptions import BusinessRuleError, DomainError, ValidationError
 from app.infrastructure.db.exceptions import DatabaseError, DuplicateError, NotFoundError, RepositoryError
-from app.infrastructure.postgres.pool import PostgresPool
+from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
 from app.observability.logging import get_logger, setup_logging
 from app.presentation.billing import routes as billing_routes
 from app.presentation.exceptions import handle_domain_exceptions
@@ -25,16 +25,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     setup_logging(settings)
     logger.info("Starting API server", environment=settings.environment)
 
-    # Initialize database pool
-    await PostgresPool.create_pool(settings)
-    logger.info("Database pool initialized")
+    # Initialize SQLAlchemy database engine
+    SQLAlchemyPool.create_engine(settings)
+    logger.info("Database engine initialized")
 
     yield
 
     # Shutdown
     logger.info("Shutting down API server")
-    await PostgresPool.close_pool()
-    logger.info("Database pool closed")
+    await SQLAlchemyPool.close_engine()
+    logger.info("Database engine closed")
 
 
 app = FastAPI(

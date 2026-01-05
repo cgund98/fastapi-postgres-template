@@ -9,7 +9,7 @@ import pytest
 from app.domain.exceptions import NotFoundError, ValidationError
 from app.domain.user.model import User
 from app.domain.user.service import UserService
-from app.infrastructure.db.exceptions import DuplicateError
+from app.infrastructure.db.exceptions import DuplicateError, NoFieldsToUpdateError
 
 
 @pytest.mark.asyncio
@@ -21,6 +21,7 @@ async def test_create_user(
     """Test creating a user."""
     email = "test@example.com"
     name = "Test User"
+    age = 25
     user_id = uuid4()
     now = datetime.now()
 
@@ -29,16 +30,18 @@ async def test_create_user(
         id=user_id,
         email=email,
         name=name,
+        age=age,
         created_at=now,
         updated_at=now,
     )
     mock_user_repository.get_by_email.return_value = None  # No existing user
     mock_user_repository.create.return_value = created_user
 
-    user = await user_service.create_user(email=email, name=name)
+    user = await user_service.create_user(email=email, name=name, age=age)
 
     assert user.email == email
     assert user.name == name
+    assert user.age == age
     assert isinstance(user.id, UUID)
     assert user.created_at is not None
     assert user.updated_at is not None
@@ -70,6 +73,7 @@ async def test_create_user_duplicate_email(
         id=user_id,
         email=email,
         name=name,
+        age=None,
         created_at=now,
         updated_at=now,
     )
@@ -94,24 +98,27 @@ async def test_get_user(
     user_id = uuid4()
     email = "get@example.com"
     name = "Get User"
+    age = 30
     now = datetime.now()
 
     expected_user = User(
         id=user_id,
         email=email,
         name=name,
+        age=age,
         created_at=now,
         updated_at=now,
     )
     mock_user_repository.get_by_id.return_value = expected_user
 
-    retrieved_user = await user_service.get_user(str(user_id))
+    retrieved_user = await user_service.get_user(user_id)
 
     assert retrieved_user is not None
     assert retrieved_user.id == user_id
     assert retrieved_user.email == email
     assert retrieved_user.name == name
-    mock_user_repository.get_by_id.assert_called_once_with(str(user_id))
+    assert retrieved_user.age == age
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
 
 
 @pytest.mark.asyncio
@@ -120,103 +127,12 @@ async def test_get_user_not_found(
     mock_user_repository: Any,
 ) -> None:
     """Test getting a non-existent user returns None."""
-    user_id = "00000000-0000-0000-0000-000000000000"
+    user_id = uuid4()
     mock_user_repository.get_by_id.return_value = None
 
     user = await user_service.get_user(user_id)
     assert user is None
     mock_user_repository.get_by_id.assert_called_once_with(user_id)
-
-
-@pytest.mark.asyncio
-async def test_update_user_name(
-    user_service: UserService,
-    mock_user_repository: Any,
-    mock_event_publisher: Any,
-) -> None:
-    """Test updating a user's name."""
-    user_id = uuid4()
-    email = "update@example.com"
-    old_name = "Original Name"
-    new_name = "Updated Name"
-    now = datetime.now()
-
-    # Mock existing user
-    existing_user = User(
-        id=user_id,
-        email=email,
-        name=old_name,
-        created_at=now,
-        updated_at=now,
-    )
-    # Mock updated user
-    updated_user = User(
-        id=user_id,
-        email=email,
-        name=new_name,
-        created_at=now,
-        updated_at=now,
-    )
-    mock_user_repository.get_by_id.return_value = existing_user
-    mock_user_repository.update.return_value = updated_user
-
-    result = await user_service.update_user_name(str(user_id), new_name)
-
-    assert result.name == new_name
-    assert result.email == email
-    assert result.id == user_id
-
-    # Verify repository calls
-    mock_user_repository.get_by_id.assert_called_once_with(str(user_id))
-    mock_user_repository.update.assert_called_once()
-    # Verify event was published
-    mock_event_publisher.publish.assert_called()
-    published_event = mock_event_publisher.publish.call_args[0][0]
-    assert published_event.aggregate_id == str(user_id)
-    assert "name" in published_event.changes
-
-
-@pytest.mark.asyncio
-async def test_update_user_name_not_found(
-    user_service: UserService,
-    mock_user_repository: Any,
-) -> None:
-    """Test updating a non-existent user raises error."""
-    user_id = "00000000-0000-0000-0000-000000000000"
-    mock_user_repository.get_by_id.return_value = None
-
-    with pytest.raises(NotFoundError) as exc_info:
-        await user_service.update_user_name(user_id, "New Name")
-
-    assert exc_info.value.entity_type == "User"
-    mock_user_repository.get_by_id.assert_called_once_with(user_id)
-
-
-@pytest.mark.asyncio
-async def test_update_user_name_empty(
-    user_service: UserService,
-    mock_user_repository: Any,
-) -> None:
-    """Test updating user name with empty string raises error."""
-    user_id = uuid4()
-    email = "empty@example.com"
-    name = "Test User"
-    now = datetime.now()
-
-    existing_user = User(
-        id=user_id,
-        email=email,
-        name=name,
-        created_at=now,
-        updated_at=now,
-    )
-    mock_user_repository.get_by_id.return_value = existing_user
-
-    with pytest.raises(ValidationError) as exc_info:
-        await user_service.update_user_name(str(user_id), "")
-
-    assert exc_info.value.field == "name"
-    mock_user_repository.get_by_id.assert_called_once_with(str(user_id))
 
 
 @pytest.mark.asyncio
@@ -233,6 +149,7 @@ async def test_list_users(
             id=uuid4(),
             email=f"user{i}@example.com",
             name=f"User {i}",
+            age=20 + i,
             created_at=now,
             updated_at=now,
         )
@@ -259,24 +176,26 @@ async def test_delete_user(
     user_id = uuid4()
     email = "delete@example.com"
     name = "Delete User"
+    age = 35
     now = datetime.now()
 
     existing_user = User(
         id=user_id,
         email=email,
         name=name,
+        age=age,
         created_at=now,
         updated_at=now,
     )
     mock_user_repository.get_by_id.return_value = existing_user
 
     # Delete the user
-    await user_service.delete_user(str(user_id))
+    await user_service.delete_user(user_id)
 
     # Verify repository calls
-    mock_user_repository.get_by_id.assert_called_once_with(str(user_id))
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
     mock_invoice_service._delete_invoices_by_user_id_in_transaction.assert_called_once_with(user_id)
-    mock_user_repository.delete.assert_called_once_with(str(user_id))
+    mock_user_repository.delete.assert_called_once_with(user_id)
 
 
 @pytest.mark.asyncio
@@ -285,11 +204,175 @@ async def test_delete_user_not_found(
     mock_user_repository: Any,
 ) -> None:
     """Test deleting a non-existent user raises error."""
-    user_id = "00000000-0000-0000-0000-000000000000"
+    user_id = uuid4()
     mock_user_repository.get_by_id.return_value = None
 
     with pytest.raises(NotFoundError) as exc_info:
         await user_service.delete_user(user_id)
 
     assert exc_info.value.entity_type == "User"
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+
+
+@pytest.mark.asyncio
+async def test_patch_user(
+    user_service: UserService,
+    mock_user_repository: Any,
+    mock_event_publisher: Any,
+) -> None:
+    """Test patching a user with sparse updates."""
+    user_id = uuid4()
+    email = "patch@example.com"
+    name = "Patch User"
+    age = 28
+    now = datetime.now()
+
+    original_user = User(
+        id=user_id,
+        email=email,
+        name=name,
+        age=age,
+        created_at=now,
+        updated_at=now,
+    )
+    updated_user = User(
+        id=user_id,
+        email=email,
+        name="Updated Name",
+        age=age,
+        created_at=now,
+        updated_at=now,
+    )
+
+    mock_user_repository.get_by_id.return_value = original_user
+    mock_user_repository.update_partial.return_value = updated_user
+
+    result = await user_service.patch_user(user_id, name="Updated Name")
+
+    assert result.name == "Updated Name"
+    assert result.email == email
+    assert result.age == age
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+    mock_user_repository.update_partial.assert_called_once()
+    mock_event_publisher.publish.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_patch_user_not_found(
+    user_service: UserService,
+    mock_user_repository: Any,
+) -> None:
+    """Test patching a non-existent user raises error."""
+    user_id = uuid4()
+    mock_user_repository.get_by_id.return_value = None
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await user_service.patch_user(user_id, name="New Name")
+
+    assert exc_info.value.entity_type == "User"
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+
+
+@pytest.mark.asyncio
+async def test_patch_user_no_changes(
+    user_service: UserService,
+    mock_user_repository: Any,
+    mock_event_publisher: Any,
+) -> None:
+    """Test patching a user with no changes returns original user."""
+    user_id = uuid4()
+    email = "nochange@example.com"
+    name = "No Change User"
+    age = 30
+    now = datetime.now()
+
+    original_user = User(
+        id=user_id,
+        email=email,
+        name=name,
+        age=age,
+        created_at=now,
+        updated_at=now,
+    )
+
+    mock_user_repository.get_by_id.return_value = original_user
+    mock_user_repository.update_partial.side_effect = NoFieldsToUpdateError()
+
+    result = await user_service.patch_user(user_id)
+
+    assert result == original_user
+    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+    mock_user_repository.update_partial.assert_called_once()
+    # No event should be published if no changes
+    mock_event_publisher.publish.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_patch_user_duplicate_email(
+    user_service: UserService,
+    mock_user_repository: Any,
+) -> None:
+    """Test patching a user with duplicate email raises error."""
+    user_id = uuid4()
+    email = "original@example.com"
+    duplicate_email = "duplicate@example.com"
+    name = "Test User"
+    age = 25
+    now = datetime.now()
+
+    original_user = User(
+        id=user_id,
+        email=email,
+        name=name,
+        age=age,
+        created_at=now,
+        updated_at=now,
+    )
+    existing_user = User(
+        id=uuid4(),
+        email=duplicate_email,
+        name="Other User",
+        age=30,
+        created_at=now,
+        updated_at=now,
+    )
+
+    mock_user_repository.get_by_id.return_value = original_user
+    mock_user_repository.get_by_email.return_value = existing_user
+
+    with pytest.raises(DuplicateError) as exc_info:
+        await user_service.patch_user(user_id, email=duplicate_email)
+
+    assert exc_info.value.entity_type == "User"
+    assert exc_info.value.field == "email"
+    assert exc_info.value.value == duplicate_email
+
+
+@pytest.mark.asyncio
+async def test_patch_user_empty_name(
+    user_service: UserService,
+    mock_user_repository: Any,
+) -> None:
+    """Test patching a user with empty name raises validation error."""
+    user_id = uuid4()
+    email = "test@example.com"
+    name = "Test User"
+    age = 25
+    now = datetime.now()
+
+    original_user = User(
+        id=user_id,
+        email=email,
+        name=name,
+        age=age,
+        created_at=now,
+        updated_at=now,
+    )
+
+    mock_user_repository.get_by_id.return_value = original_user
+
+    with pytest.raises(ValidationError) as exc_info:
+        await user_service.patch_user(user_id, name="")
+
+    assert exc_info.value.field == "name"
     mock_user_repository.get_by_id.assert_called_once_with(user_id)

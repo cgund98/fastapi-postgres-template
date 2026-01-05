@@ -2,29 +2,22 @@
 
 from collections.abc import AsyncGenerator
 
-from asyncpg.pool import PoolConnectionProxy
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.config.settings import Settings, get_settings
-from app.domain.billing.invoice.repo.pg import InvoiceRepository
+from app.domain.billing.invoice.repo.sql import InvoiceRepository
 from app.domain.billing.invoice.service import InvoiceService
-from app.domain.user.repo.pg import UserRepository
+from app.domain.user.repo.sql import UserRepository
 from app.infrastructure.messaging.publisher import EventPublisher, SNSPublisher
-from app.infrastructure.postgres.pool import PostgresPool
-from app.infrastructure.postgres.transaction import PostgresTransactionManager
+from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
+from app.infrastructure.sql.transaction import SQLTransactionManager
 
 
-async def get_db_connection() -> AsyncGenerator[PoolConnectionProxy, None]:
-    """Get a database connection from the pool."""
-    pool = PostgresPool.get_pool()
-    connection = await pool.acquire()
-    try:
+async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
+    """Get a database connection from the SQLAlchemy pool."""
+    async with SQLAlchemyPool.get_connection() as connection:
         yield connection
-    finally:
-        # Release connection back to pool
-        # Note: If a transaction manager was used, it may have already released the connection
-        # asyncpg's pool.release() handles already-released connections gracefully
-        await pool.release(connection)
 
 
 def get_event_publisher(settings: Settings = Depends(get_settings)) -> EventPublisher:
@@ -39,21 +32,21 @@ def get_event_publisher(settings: Settings = Depends(get_settings)) -> EventPubl
 
 
 def get_transaction_manager(
-    connection: PoolConnectionProxy = Depends(get_db_connection),
-) -> PostgresTransactionManager:
+    connection: AsyncConnection = Depends(get_db_connection),
+) -> SQLTransactionManager:
     """Get a transaction manager for the given connection."""
-    return PostgresTransactionManager(connection)
+    return SQLTransactionManager(connection)
 
 
 def get_user_repository(
-    connection: PoolConnectionProxy = Depends(get_db_connection),
+    connection: AsyncConnection = Depends(get_db_connection),
 ) -> UserRepository:
     """Get a user repository for the given connection."""
     return UserRepository(connection)
 
 
 def get_invoice_repository(
-    connection: PoolConnectionProxy = Depends(get_db_connection),
+    connection: AsyncConnection = Depends(get_db_connection),
 ) -> InvoiceRepository:
     """Get an invoice repository for the given connection."""
     return InvoiceRepository(connection)
@@ -61,7 +54,7 @@ def get_invoice_repository(
 
 def get_invoice_service(
     repository: InvoiceRepository = Depends(get_invoice_repository),
-    tx_manager: PostgresTransactionManager = Depends(get_transaction_manager),
+    tx_manager: SQLTransactionManager = Depends(get_transaction_manager),
     event_publisher: EventPublisher = Depends(get_event_publisher),
 ) -> InvoiceService:
     """Get an invoice service instance."""

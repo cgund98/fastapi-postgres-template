@@ -4,16 +4,15 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from uuid_extensions import uuid7
+from uuid_extensions import uuid7str
 
 from app.domain.billing.invoice.events.invoice_events import (
     InvoiceCreatedEvent,
     InvoicePaidEvent,
     InvoicePaymentRequestedEvent,
 )
-from app.domain.billing.invoice.model import Invoice, InvoiceStatus
-from app.domain.billing.invoice.repo.create import CreateInvoice
-from app.domain.billing.invoice.repo.pg import InvoiceRepository
+from app.domain.billing.invoice.model import CreateInvoice, Invoice, InvoiceStatus
+from app.domain.billing.invoice.repo.sql import InvoiceRepository
 from app.domain.exceptions import BusinessRuleError, NotFoundError
 from app.infrastructure.db.transaction import TransactionManager
 from app.infrastructure.messaging.publisher import EventPublisher
@@ -37,7 +36,7 @@ class InvoiceService:
         """Create a new invoice."""
         async with self._tx_manager.transaction():
             # Generate V7 UUID (timestamp-centric) and timestamps
-            invoice_id = uuid7()
+            invoice_id = uuid7str()
             now = datetime.now()
             create_invoice = CreateInvoice(
                 id=invoice_id, user_id=user_id, amount=amount, created_at=now, updated_at=now

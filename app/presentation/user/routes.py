@@ -1,13 +1,16 @@
 """User API routes."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, status
 
 from app.domain.exceptions import NotFoundError
 from app.domain.user.service import UserService
+from app.presentation.mapper import to_optional_or_unset, to_required_or_unset
 from app.presentation.pagination import create_paginated_response, page_to_limit_offset
 from app.presentation.schemas import PaginatedResponse
 from app.presentation.user.deps import get_user_service
-from app.presentation.user.schema import UserCreateRequest, UserResponse, UserUpdateRequest
+from app.presentation.user.schema import UserCreateRequest, UserPatchRequest, UserResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -28,6 +31,7 @@ async def list_users(
                 id=user.id,
                 email=user.email,
                 name=user.name,
+                age=user.age,
                 created_at=user.created_at,
                 updated_at=user.updated_at,
             )
@@ -46,12 +50,13 @@ async def create_user(
 ) -> UserResponse:
     """Create a new user."""
 
-    user = await service.create_user(email=request.email, name=request.name)
+    user = await service.create_user(email=request.email, name=request.name, age=request.age)
 
     return UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
+        age=user.age,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -59,7 +64,7 @@ async def create_user(
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
-    user_id: str,
+    user_id: UUID,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
     """Get user by ID."""
@@ -67,31 +72,41 @@ async def get_user(
     user = await service.get_user(user_id)
 
     if user is None:
-        raise NotFoundError(entity_type="User", identifier=user_id)
+        raise NotFoundError(entity_type="User", identifier=str(user_id))
 
     return UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
+        age=user.age,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
 
 
 @router.patch("/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: str,
-    request: UserUpdateRequest,
+async def patch_user(
+    user_id: UUID,
+    request: UserPatchRequest,
     service: UserService = Depends(get_user_service),
 ) -> UserResponse:
-    """Update user name."""
+    """Patch user with sparse updates."""
 
-    user = await service.update_user_name(user_id, request.name)
+    # Map presentation layer values to domain layer sentinels
+    email = to_required_or_unset(request.email)
+    name = to_required_or_unset(request.name)
+    age = to_optional_or_unset(request.age)
+
+    user = await service.patch_user(user_id, email=email, name=name, age=age)
+
+    if user is None:
+        raise NotFoundError(entity_type="User", identifier=str(user_id))
 
     return UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
+        age=user.age,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -99,7 +114,7 @@ async def update_user(
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
-    user_id: str,
+    user_id: UUID,
     service: UserService = Depends(get_user_service),
 ) -> None:
     """Delete a user and their associated invoices."""
