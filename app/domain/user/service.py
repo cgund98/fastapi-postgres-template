@@ -6,14 +6,17 @@ from uuid import UUID
 from uuid_extensions import uuid7
 
 from app.domain.billing.invoice.service import InvoiceService
-from app.domain.exceptions import NotFoundError
 from app.domain.types import UNSET, OptionalOrUnset, RequiredOrUnset
 from app.domain.user.diff import generate_user_changes
 from app.domain.user.events.user_events import UserCreatedEvent, UserUpdatedEvent
 from app.domain.user.model import CreateUser, User, UserUpdate
 from app.domain.user.repo.sql import UserRepository
-from app.domain.user.validators import validate_email_not_duplicate, validate_name
-from app.infrastructure.db.exceptions import DuplicateError, NoFieldsToUpdateError
+from app.domain.user.validators import (
+    validate_create_user_request,
+    validate_delete_user_request,
+    validate_patch_user_request,
+)
+from app.infrastructure.db.exceptions import NoFieldsToUpdateError
 from app.infrastructure.db.transaction import TransactionManager
 from app.infrastructure.messaging.publisher import EventPublisher
 
@@ -37,10 +40,8 @@ class UserService:
     async def create_user(self, email: str, name: str, age: int | None = None) -> User:
         """Create a new user."""
         async with self._tx_manager.transaction():
-            # Check if user already exists
-            existing = await self._repo.get_by_email(email)
-            if existing is not None:
-                raise DuplicateError(entity_type="User", field="email", value=email)
+            # Validate request
+            await validate_create_user_request(email, name, self._repo)
 
             # Generate V7 UUID (timestamp-centric) and timestamps
             user_id = uuid7()
@@ -68,9 +69,8 @@ class UserService:
     ) -> User:
         """Patch a user with sparse updates."""
         async with self._tx_manager.transaction():
-            user = await self._repo.get_by_id(user_id)
-            if user is None:
-                raise NotFoundError(entity_type="User", identifier=str(user_id))
+            # Validate request and get user
+            user = await validate_patch_user_request(user_id, email, name, self._repo)
 
             # Build UserUpdate from provided fields
             user_update = UserUpdate(
@@ -78,12 +78,6 @@ class UserService:
                 name=name,
                 age=age,
             )
-
-            # Validate name if provided (name is RequiredOrUnset, so can't be None)
-            validate_name(name)
-
-            # Check for duplicate email if email is being updated (email is RequiredOrUnset, so can't be None)
-            await validate_email_not_duplicate(email, user.email, self._repo)
 
             # Generate changes dictionary for event
             changes = generate_user_changes(user_update, user)
@@ -111,9 +105,8 @@ class UserService:
     async def delete_user(self, user_id: UUID) -> None:
         """Delete a user and their associated invoices."""
         async with self._tx_manager.transaction():
-            user = await self._repo.get_by_id(user_id)
-            if user is None:
-                raise NotFoundError(entity_type="User", identifier=str(user_id))
+            # Validate request and get user
+            user = await validate_delete_user_request(user_id, self._repo)
 
             # Delete associated invoices if invoice service is available
             # Use internal method to avoid nested transactions

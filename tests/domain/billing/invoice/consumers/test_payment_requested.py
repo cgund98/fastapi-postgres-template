@@ -47,11 +47,13 @@ async def test_invoice_payment_requested_handler(
     with (
         patch("app.domain.billing.invoice.consumers.payment_requested.SQLAlchemyPool") as mock_pool_class,
         patch("app.domain.billing.invoice.consumers.payment_requested.SQLTransactionManager") as mock_tx_class,
+        patch("app.domain.billing.invoice.consumers.payment_requested.UserRepository") as mock_user_repo_class,
         patch("app.domain.billing.invoice.consumers.payment_requested.InvoiceService", return_value=mock_service),
     ):
         mock_pool_class.get_connection.return_value = mock_connection_context
         mock_tx_manager = MagicMock()
         mock_tx_class.return_value = mock_tx_manager
+        mock_user_repo_class.return_value = MagicMock()
 
         # Should mark invoice as paid and not raise an exception
         await invoice_payment_requested_handler.handle(event)

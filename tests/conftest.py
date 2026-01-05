@@ -88,9 +88,10 @@ def invoice_service(
     mock_invoice_repository: InvoiceRepository,
     mock_transaction_manager: TransactionManager,
     mock_event_publisher: EventPublisher,
+    mock_user_repository: UserRepository,
 ) -> InvoiceService:
     """Get an invoice service for testing with mocked dependencies."""
-    return InvoiceService(mock_invoice_repository, mock_transaction_manager, mock_event_publisher)
+    return InvoiceService(mock_invoice_repository, mock_transaction_manager, mock_event_publisher, mock_user_repository)
 
 
 @pytest.fixture

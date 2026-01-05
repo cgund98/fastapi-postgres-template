@@ -13,7 +13,9 @@ from app.domain.billing.invoice.events.invoice_events import (
 )
 from app.domain.billing.invoice.model import CreateInvoice, Invoice, InvoiceStatus
 from app.domain.billing.invoice.repo.sql import InvoiceRepository
+from app.domain.billing.invoice.validators import validate_create_invoice_request
 from app.domain.exceptions import BusinessRuleError, NotFoundError
+from app.domain.user.repo.base import UserRepository
 from app.infrastructure.db.transaction import TransactionManager
 from app.infrastructure.messaging.publisher import EventPublisher
 
@@ -26,15 +28,20 @@ class InvoiceService:
         repository: InvoiceRepository,
         transaction_manager: TransactionManager,
         event_publisher: EventPublisher,
+        user_repository: UserRepository,
     ) -> None:
         """Initialize invoice service."""
         self._repo = repository
         self._tx_manager = transaction_manager
         self._event_publisher = event_publisher
+        self._user_repo = user_repository
 
     async def create_invoice(self, user_id: UUID, amount: Decimal) -> Invoice:
         """Create a new invoice."""
         async with self._tx_manager.transaction():
+            # Validate request
+            await validate_create_invoice_request(user_id, self._user_repo)
+
             # Generate V7 UUID (timestamp-centric) and timestamps
             invoice_id = uuid7str()
             now = datetime.now()

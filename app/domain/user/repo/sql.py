@@ -61,9 +61,10 @@ class UserRepository(BaseUserRepository):
 
     async def get_by_id(self, user_id: UUID) -> User | None:
         """Get user by ID."""
+        logger.info("Getting user by ID", user_id=user_id)
         try:
             stmt = select_user_by_id()
-            result: Result = await self._conn.execute(stmt, {"user_id": str(user_id)})
+            result: Result = await self._conn.execute(stmt, {"user_id": user_id})
             row = result.first()
 
             if row is None:

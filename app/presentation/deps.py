@@ -56,6 +56,7 @@ def get_invoice_service(
     repository: InvoiceRepository = Depends(get_invoice_repository),
     tx_manager: SQLTransactionManager = Depends(get_transaction_manager),
     event_publisher: EventPublisher = Depends(get_event_publisher),
+    user_repository: UserRepository = Depends(get_user_repository),
 ) -> InvoiceService:
     """Get an invoice service instance."""
-    return InvoiceService(repository, tx_manager, event_publisher)
+    return InvoiceService(repository, tx_manager, event_publisher, user_repository)

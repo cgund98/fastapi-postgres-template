@@ -3,6 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,6 +18,7 @@ async def test_create_invoice(
     invoice_service: InvoiceService,
     mock_invoice_repository: Any,
     mock_event_publisher: Any,
+    mock_user_repository: Any,
 ) -> None:
     """Test creating an invoice."""
     user_id = uuid4()
@@ -35,19 +37,24 @@ async def test_create_invoice(
     )
     mock_invoice_repository.create.return_value = created_invoice
 
-    invoice = await invoice_service.create_invoice(user_id=user_id, amount=amount)
+    with patch(
+        "app.domain.billing.invoice.service.validate_create_invoice_request", new_callable=AsyncMock
+    ) as mock_validate:
+        invoice = await invoice_service.create_invoice(user_id=user_id, amount=amount)
 
-    assert invoice.user_id == user_id
-    assert invoice.amount == amount
-    assert invoice.status == InvoiceStatus.PENDING
-    assert isinstance(invoice.id, UUID)
-    assert invoice.created_at is not None
-    assert invoice.updated_at is not None
+        assert invoice.user_id == user_id
+        assert invoice.amount == amount
+        assert invoice.status == InvoiceStatus.PENDING
+        assert isinstance(invoice.id, UUID)
+        assert invoice.created_at is not None
+        assert invoice.updated_at is not None
 
-    # Verify repository was called
-    mock_invoice_repository.create.assert_called_once()
-    # Verify events were published
-    assert mock_event_publisher.publish.call_count >= 1
+        # Verify validator was called
+        mock_validate.assert_called_once_with(user_id, mock_user_repository)
+        # Verify repository was called
+        mock_invoice_repository.create.assert_called_once()
+        # Verify events were published
+        assert mock_event_publisher.publish.call_count >= 1
 
 
 @pytest.mark.asyncio

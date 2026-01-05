@@ -6,6 +6,7 @@ from app.domain.billing.invoice.events.constants import InvoiceEventType
 from app.domain.billing.invoice.events.invoice_events import InvoicePaymentRequestedEvent
 from app.domain.billing.invoice.repo.sql import InvoiceRepository
 from app.domain.billing.invoice.service import InvoiceService
+from app.domain.user.repo.sql import UserRepository
 from app.infrastructure.messaging.base import BaseEvent
 from app.infrastructure.messaging.publisher import EventPublisher
 from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
@@ -38,8 +39,9 @@ class InvoicePaymentRequestedHandler:
         async with SQLAlchemyPool.get_connection() as connection:
             tx_manager = SQLTransactionManager(connection)
             repository = InvoiceRepository(connection)
+            user_repository = UserRepository(connection)
 
-            service = InvoiceService(repository, tx_manager, self._event_publisher)
+            service = InvoiceService(repository, tx_manager, self._event_publisher, user_repository)
 
             # Mark invoice as paid (this will publish InvoicePaidEvent)
             invoice_id = UUID(payment_event.aggregate_id)
