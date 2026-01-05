@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: fastapi-postgres-template-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: fastapi-postgres-template-localstack
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"  # External services port range
+    environment:
+      - SERVICES=sns,sqs
+      - DEBUG=1
+      - PERSISTENCE=0
+      - LAMBDA_EXECUTOR=local
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: resources/docker/migrate.Dockerfile
+    image: app-migrations:latest
+    container_name: fastapi-postgres-template-migrate
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@postgres:5432/app?sslmode=disable", "up"]
+    volumes:
+      # Mount migrations for local development (overrides image migrations)
+      - ./resources/db/migrations:/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+volumes:
+  postgres_data:
+

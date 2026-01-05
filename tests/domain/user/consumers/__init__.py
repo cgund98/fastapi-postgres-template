@@ -1,0 +1,2 @@
+"""User event consumer tests."""
+

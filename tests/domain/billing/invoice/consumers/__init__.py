@@ -1,0 +1,2 @@
+"""Invoice event consumer tests."""
+
