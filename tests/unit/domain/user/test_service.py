@@ -46,10 +46,20 @@ async def test_create_user(
         assert user.created_at is not None
         assert user.updated_at is not None
 
-        # Verify validator was called
-        mock_validate.assert_called_once_with(email, name, mock_user_repository)
-        # Verify repository was called
-        mock_user_repository.create.assert_called_once()
+        # Verify validator was called (with context)
+        assert mock_validate.call_count == 1
+        call_args = mock_validate.call_args
+        assert call_args.kwargs["email"] == email
+        assert call_args.kwargs["name"] == name
+        assert call_args.kwargs["repository"] == mock_user_repository
+
+        # Verify repository was called with correct args: create(context, create_user)
+        assert mock_user_repository.create.call_count == 1
+        create_call = mock_user_repository.create.call_args
+        assert len(create_call.args) == 2  # context, create_user
+        assert create_call.args[1].email == email
+        assert create_call.args[1].name == name
+
         # Verify event was published
         mock_event_publisher.publish.assert_called_once()
         published_event = mock_event_publisher.publish.call_args[0][0]
@@ -87,7 +97,12 @@ async def test_get_user(
     assert retrieved_user.email == email
     assert retrieved_user.name == name
     assert retrieved_user.age == age
-    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+
+    # Verify repository was called with correct args: get_by_id(context, user_id)
+    assert mock_user_repository.get_by_id.call_count == 1
+    get_call = mock_user_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, user_id
+    assert get_call.args[1] == user_id
 
 
 @pytest.mark.asyncio
@@ -101,7 +116,12 @@ async def test_get_user_not_found(
 
     user = await user_service.get_user(user_id)
     assert user is None
-    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+
+    # Verify repository was called with correct args: get_by_id(context, user_id)
+    assert mock_user_repository.get_by_id.call_count == 1
+    get_call = mock_user_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, user_id
+    assert get_call.args[1] == user_id
 
 
 @pytest.mark.asyncio
@@ -131,8 +151,18 @@ async def test_list_users(
 
     assert len(users) == 3
     assert total == 5
-    mock_user_repository.list.assert_called_once_with(limit=3, offset=0)
-    mock_user_repository.count.assert_called_once()
+
+    # Verify repository was called with correct args: list(context, limit=limit, offset=offset)
+    assert mock_user_repository.list.call_count == 1
+    list_call = mock_user_repository.list.call_args
+    assert len(list_call.args) == 1  # context
+    assert list_call.kwargs["limit"] == 3
+    assert list_call.kwargs["offset"] == 0
+
+    # Verify count was called: count(context)
+    assert mock_user_repository.count.call_count == 1
+    count_call = mock_user_repository.count.call_args
+    assert len(count_call.args) == 1  # context
 
 
 @pytest.mark.asyncio
@@ -163,11 +193,20 @@ async def test_delete_user(
         # Delete the user
         await user_service.delete_user(user_id)
 
-        # Verify validator was called
-        mock_validate.assert_called_once_with(user_id, mock_user_repository)
-        # Verify repository calls
-        mock_invoice_service._delete_invoices_by_user_id_in_transaction.assert_called_once_with(user_id)
-        mock_user_repository.delete.assert_called_once_with(user_id)
+        # Verify validator was called (with context)
+        assert mock_validate.call_count == 1
+        call_args = mock_validate.call_args
+        assert call_args.kwargs["user_id"] == user_id
+        assert call_args.kwargs["repository"] == mock_user_repository
+
+        # Verify repository calls (with context)
+        assert mock_invoice_service._delete_invoices_by_user_id_in_transaction.call_count == 1
+
+        # Verify delete was called with correct args: delete(context, user_id)
+        assert mock_user_repository.delete.call_count == 1
+        delete_call = mock_user_repository.delete.call_args
+        assert len(delete_call.args) == 2  # context, user_id
+        assert delete_call.args[1] == user_id
 
 
 @pytest.mark.asyncio
@@ -210,11 +249,21 @@ async def test_patch_user(
         assert result.name == "Updated Name"
         assert result.email == email
         assert result.age == age
-        # Verify validator was called
-        from app.domain.types import UNSET
 
-        mock_validate.assert_called_once_with(user_id, UNSET, "Updated Name", mock_user_repository)
-        mock_user_repository.update_partial.assert_called_once()
+        # Verify validator was called (with context)
+        assert mock_validate.call_count == 1
+        call_args = mock_validate.call_args
+        assert call_args.kwargs["user_id"] == user_id
+        assert call_args.kwargs["email"] is None
+        assert call_args.kwargs["name"] == "Updated Name"
+        assert call_args.kwargs["repository"] == mock_user_repository
+
+        # Verify repository was called with correct args: update_partial(context, user_id, user_update)
+        assert mock_user_repository.update_partial.call_count == 1
+        update_call = mock_user_repository.update_partial.call_args
+        assert len(update_call.args) == 3  # context, user_id, user_update
+        assert update_call.args[1] == user_id
+        assert update_call.args[2].name == "Updated Name"
         mock_event_publisher.publish.assert_called_once()
 
 
@@ -248,10 +297,20 @@ async def test_patch_user_no_changes(
         result = await user_service.patch_user(user_id)
 
         assert result == original_user
-        # Verify validator was called
-        from app.domain.types import UNSET
 
-        mock_validate.assert_called_once_with(user_id, UNSET, UNSET, mock_user_repository)
-        mock_user_repository.update_partial.assert_called_once()
+        # Verify validator was called (with context)
+        assert mock_validate.call_count == 1
+        call_args = mock_validate.call_args
+        assert call_args.kwargs["user_id"] == user_id
+        assert call_args.kwargs["email"] is None
+        assert call_args.kwargs["name"] is None
+        assert call_args.kwargs["repository"] == mock_user_repository
+
+        # Verify repository was called with correct args: update_partial(context, user_id, user_update)
+        assert mock_user_repository.update_partial.call_count == 1
+        update_call = mock_user_repository.update_partial.call_args
+        assert len(update_call.args) == 3  # context, user_id, user_update
+        assert update_call.args[1] == user_id
+
         # No event should be published if no changes
         mock_event_publisher.publish.assert_not_called()

@@ -1,46 +1,53 @@
 """SQL repository for User domain."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy import func, select
+from sqlmodel import Field, SQLModel
 
-from app.domain.user.model import CreateUser, User, UserUpdate
-from app.domain.user.persistence.queries import (
-    count_users,
-    delete_user,
-    insert_user,
-    select_user_by_email,
-    select_user_by_id,
-    select_users_list,
-    update_user,
-    update_user_by_id,
-)
+from app.domain.user.commands import CreateUser, UserUpdate
+from app.domain.user.model import User
 from app.domain.user.repo.base import UserRepository as BaseUserRepository
 from app.infrastructure.db.exceptions import DatabaseError, NoFieldsToUpdateError
-from app.infrastructure.db.update_mapper import build_update_values
+from app.infrastructure.sql.context import SQLContext
 from app.observability.logging import get_logger
-
-if TYPE_CHECKING:
-    from sqlalchemy import Result
-else:
-    Result = object  # Placeholder for runtime
 
 logger = get_logger(__name__)
 
 
-class UserRepository(BaseUserRepository):
-    """SQL implementation of User repository using SQLAlchemy."""
+class UserORM(SQLModel, table=True):
+    """User ORM model for database persistence."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
-        """Initialize repository with a database connection."""
-        self._conn = conn
+    __tablename__ = "users"
 
-    async def create(self, create_user: CreateUser) -> User:
+    id: UUID = Field(primary_key=True)
+    email: str = Field(unique=True, index=True)
+    name: str
+    age: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserRepository(BaseUserRepository[SQLContext]):
+    """SQL implementation of User repository using SQLModel."""
+
+    @staticmethod
+    def _orm_to_domain(orm_user: UserORM) -> User:
+        """Convert ORM model to domain model."""
+        return User(
+            id=orm_user.id,
+            email=orm_user.email,
+            name=orm_user.name,
+            age=orm_user.age,
+            created_at=orm_user.created_at,
+            updated_at=orm_user.updated_at,
+        )
+
+    async def create(self, context: SQLContext, create_user: CreateUser) -> User:
         """Create a new user."""
         try:
-            stmt = insert_user().values(
+            orm_user = UserORM(
                 id=create_user.id,
                 email=create_user.email,
                 name=create_user.name,
@@ -48,87 +55,103 @@ class UserRepository(BaseUserRepository):
                 created_at=create_user.created_at,
                 updated_at=create_user.updated_at,
             )
-            result: Result = await self._conn.execute(stmt)
-            row = result.first()
 
-            if row is None:
-                raise DatabaseError()
+            context.session.add(orm_user)
+            await context.session.flush()
+            await context.session.refresh(orm_user)
 
-            return User(**row._mapping)
+            return self._orm_to_domain(orm_user)
         except Exception as e:
             logger.exception("Database error while creating user")
             raise DatabaseError() from e
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
+    async def get_by_id(self, context: SQLContext, user_id: UUID) -> User | None:
         """Get user by ID."""
         logger.info("Getting user by ID", user_id=user_id)
-        try:
-            stmt = select_user_by_id()
-            result: Result = await self._conn.execute(stmt, {"user_id": user_id})
-            row = result.first()
 
-            if row is None:
+        try:
+            orm_user = await context.session.get(UserORM, user_id)
+
+            if orm_user is None:
                 return None
 
-            return User(**row._mapping)
+            return self._orm_to_domain(orm_user)
         except Exception as e:
             logger.exception("Database error while retrieving user by ID")
             raise DatabaseError() from e
 
-    async def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, context: SQLContext, email: str) -> User | None:
         """Get user by email."""
         try:
-            stmt = select_user_by_email()
-            result: Result = await self._conn.execute(stmt, {"email": email})
-            row = result.first()
+            statement = select(UserORM).where(UserORM.email == email)
+            result = await context.session.execute(statement)
+            orm_user = result.scalar_one_or_none()
 
-            if row is None:
+            if orm_user is None:
                 return None
 
-            return User(**row._mapping)
-
+            return self._orm_to_domain(orm_user)
         except Exception as e:
             logger.exception("Database error while retrieving user by email")
             raise DatabaseError() from e
 
-    async def update(self, user: User) -> User:
+    async def update(self, context: SQLContext, user: User) -> User:
         """Update an existing user."""
         try:
-            stmt = update_user().values(
-                email=user.email,
-                name=user.name,
-                updated_at=user.updated_at,
-            )
-            result: Result = await self._conn.execute(stmt, {"user_id": user.id})
-            row = result.first()
+            # Get the existing user from the database
+            orm_user = await context.session.get(UserORM, user.id)
 
-            if row is None:
-                raise DatabaseError()
+            if orm_user is None:
+                raise DatabaseError("User not found")
 
-            return User(**row._mapping)
+            # Update fields
+            orm_user.email = user.email
+            orm_user.name = user.name
+            orm_user.updated_at = datetime.now()
 
+            await context.session.flush()
+            await context.session.refresh(orm_user)
+
+            return self._orm_to_domain(orm_user)
         except Exception as e:
             logger.exception("Database error while updating user")
             raise DatabaseError() from e
 
-    async def update_partial(self, user_id: UUID, update: UserUpdate) -> User:
+    async def update_partial(self, context: SQLContext, user_id: UUID, update: UserUpdate) -> User:
         """Update a user with sparse patching support."""
         try:
-            values = build_update_values(update)
-            if not values:
+            # Get the existing user
+            orm_user = await context.session.get(UserORM, user_id)
+
+            if orm_user is None:
+                raise DatabaseError("User not found")
+
+            # Track if any fields are being updated
+            has_updates = False
+
+            # Update only non-None fields explicitly
+            if update.email is not None:
+                orm_user.email = update.email
+                has_updates = True
+
+            if update.name is not None:
+                orm_user.name = update.name
+                has_updates = True
+
+            if update.age is not None:
+                orm_user.age = update.age
+                has_updates = True
+
+            if not has_updates:
                 raise NoFieldsToUpdateError()
 
-            # Always update the updated_at timestamp
-            values["updated_at"] = datetime.now()
+            # Always update the updated_at timestamp when fields change
+            orm_user.updated_at = datetime.now()
 
-            stmt = update_user_by_id(values)
-            result: Result = await self._conn.execute(stmt, {"user_id": user_id})
-            row = result.first()
+            await context.session.flush()
+            await context.session.refresh(orm_user)
 
-            if not row:
-                raise DatabaseError("Query returned no rows when updating user")
-
-            return User(**row._mapping)
+            return self._orm_to_domain(orm_user)
 
         except NoFieldsToUpdateError:
             raise
@@ -137,32 +160,39 @@ class UserRepository(BaseUserRepository):
             logger.exception("Database error while partially updating user")
             raise DatabaseError() from e
 
-    async def delete(self, user_id: UUID) -> None:
+    async def delete(self, context: SQLContext, user_id: UUID) -> None:
         """Delete a user by ID."""
         try:
-            stmt = delete_user()
-            await self._conn.execute(stmt, {"user_id": user_id})
+            orm_user = await context.session.get(UserORM, user_id)
+
+            if orm_user is not None:
+                await context.session.delete(orm_user)
+                await context.session.flush()
         except Exception as e:
             logger.exception("Database error while deleting user")
             raise DatabaseError() from e
 
-    async def list(self, limit: int, offset: int) -> list[User]:
+    async def list(self, context: SQLContext, limit: int, offset: int) -> list[User]:
         """List users with pagination."""
         try:
-            stmt = select_users_list()
-            result: Result = await self._conn.execute(stmt, {"limit": limit, "offset": offset})
-            rows = result.all()
-            return [User(**row._mapping) for row in rows]
+            statement = select(UserORM).order_by(UserORM.created_at.desc()).limit(limit).offset(offset)
+
+            result = await context.session.execute(statement)
+            orm_users = result.scalars().all()
+
+            return [self._orm_to_domain(orm_user) for orm_user in orm_users]
         except Exception as e:
             logger.exception("Database error while listing users")
             raise DatabaseError() from e
 
-    async def count(self) -> int:
+    async def count(self, context: SQLContext) -> int:
         """Get total count of users."""
         try:
-            stmt = count_users()
-            result: Result = await self._conn.execute(stmt)
+            statement = select(func.count()).select_from(UserORM)
+
+            result = await context.session.execute(statement)
             count = result.scalar()
+
             return count if count is not None else 0
         except Exception as e:
             logger.exception("Database error while counting users")

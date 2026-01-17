@@ -49,10 +49,20 @@ async def test_create_invoice(
         assert invoice.created_at is not None
         assert invoice.updated_at is not None
 
-        # Verify validator was called
-        mock_validate.assert_called_once_with(user_id, mock_user_repository)
-        # Verify repository was called
-        mock_invoice_repository.create.assert_called_once()
+        # Verify validator was called (with context)
+        assert mock_validate.call_count == 1
+        call_args = mock_validate.call_args
+        assert call_args.kwargs["user_id"] == user_id
+        assert call_args.kwargs["user_repository"] == mock_user_repository
+
+        # Verify repository was called with correct args: create(context, create_invoice)
+        assert mock_invoice_repository.create.call_count == 1
+        create_call = mock_invoice_repository.create.call_args
+
+        assert len(create_call.args) == 2  # context, create_invoice
+        assert create_call.args[1].user_id == user_id
+        assert create_call.args[1].amount == amount
+
         # Verify events were published
         assert mock_event_publisher.publish.call_count >= 1
 
@@ -84,7 +94,12 @@ async def test_get_invoice(
     assert retrieved_invoice.id == invoice_id
     assert retrieved_invoice.user_id == user_id
     assert retrieved_invoice.amount == amount
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+
+    # Verify repository was called with correct args: get_by_id(context, str(invoice_id))
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
 
 
 @pytest.mark.asyncio
@@ -98,7 +113,12 @@ async def test_get_invoice_not_found(
 
     invoice = await invoice_service.get_invoice(invoice_id)
     assert invoice is None
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+
+    # Verify repository was called with correct args: get_by_id(context, str(invoice_id))
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
 
 
 @pytest.mark.asyncio
@@ -141,9 +161,18 @@ async def test_mark_invoice_paid(
     assert result.paid_at is not None
     assert result.id == invoice_id
 
-    # Verify repository calls
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
-    mock_invoice_repository.update.assert_called_once()
+    # Verify repository calls (with context)
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
+
+    # Verify update was called with correct args: update(context, invoice)
+    assert mock_invoice_repository.update.call_count == 1
+    update_call = mock_invoice_repository.update.call_args
+    assert len(update_call.args) == 2  # context, invoice
+    assert update_call.args[1].status == InvoiceStatus.PAID
+
     # Verify event was published
     mock_event_publisher.publish.assert_called()
     published_event = mock_event_publisher.publish.call_args[0][0]
@@ -163,7 +192,13 @@ async def test_mark_invoice_paid_not_found(
         await invoice_service.mark_invoice_paid(invoice_id)
 
     assert exc_info.value.entity_type == "Invoice"
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+
+    # Verify repository was called with correct args: get_by_id(context, str(invoice_id))
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
 
 
 @pytest.mark.asyncio
@@ -194,7 +229,9 @@ async def test_mark_invoice_paid_already_paid(
         await invoice_service.mark_invoice_paid(invoice_id)
 
     assert "already paid" in str(exc_info.value).lower()
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+
+    # Verify repository was called with context
+    assert mock_invoice_repository.get_by_id.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -223,8 +260,12 @@ async def test_request_payment(
 
     assert result.id == invoice_id
 
-    # Verify repository was called
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+    # Verify repository was called with correct args: get_by_id(context, str(invoice_id))
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
+
     # Verify event was published
     mock_event_publisher.publish.assert_called()
     published_event = mock_event_publisher.publish.call_args[0][0]
@@ -244,7 +285,12 @@ async def test_request_payment_not_found(
         await invoice_service.request_payment(invoice_id)
 
     assert exc_info.value.entity_type == "Invoice"
-    mock_invoice_repository.get_by_id.assert_called_once_with(str(invoice_id))
+
+    # Verify repository was called with correct args: get_by_id(context, str(invoice_id))
+    assert mock_invoice_repository.get_by_id.call_count == 1
+    get_call = mock_invoice_repository.get_by_id.call_args
+    assert len(get_call.args) == 2  # context, invoice_id
+    assert get_call.args[1] == str(invoice_id)
 
 
 @pytest.mark.asyncio
@@ -275,8 +321,19 @@ async def test_list_invoices(
 
     assert len(invoices) == 3
     assert total == 5
-    mock_invoice_repository.list.assert_called_once_with(limit=3, offset=0, user_id=None)
-    mock_invoice_repository.count.assert_called_once_with(user_id=None)
+    # Verify repository was called with correct args: list(context, limit=limit, offset=offset, user_id=None)
+    assert mock_invoice_repository.list.call_count == 1
+    list_call = mock_invoice_repository.list.call_args
+    assert len(list_call.args) == 1  # context
+    assert list_call.kwargs["limit"] == 3
+    assert list_call.kwargs["offset"] == 0
+    assert list_call.kwargs["user_id"] is None
+
+    # Verify count was called: count(context, user_id=None)
+    assert mock_invoice_repository.count.call_count == 1
+    count_call = mock_invoice_repository.count.call_args
+    assert len(count_call.args) == 1  # context
+    assert count_call.kwargs["user_id"] is None
 
 
 @pytest.mark.asyncio
@@ -308,8 +365,20 @@ async def test_list_invoices_filtered_by_user_id(
     assert len(invoices) == 3
     assert total == 3
     assert all(invoice.user_id == user_id_1 for invoice in invoices)
-    mock_invoice_repository.list.assert_called_once_with(limit=10, offset=0, user_id=str(user_id_1))
-    mock_invoice_repository.count.assert_called_once_with(user_id=str(user_id_1))
+
+    # Verify repository was called with correct args: list(context, limit=limit, offset=offset, user_id=str(user_id))
+    assert mock_invoice_repository.list.call_count == 1
+    list_call = mock_invoice_repository.list.call_args
+    assert len(list_call.args) == 1  # context
+    assert list_call.kwargs["limit"] == 10
+    assert list_call.kwargs["offset"] == 0
+    assert list_call.kwargs["user_id"] == str(user_id_1)
+
+    # Verify count was called: count(context, user_id=str(user_id))
+    assert mock_invoice_repository.count.call_count == 1
+    count_call = mock_invoice_repository.count.call_args
+    assert len(count_call.args) == 1  # context
+    assert count_call.kwargs["user_id"] == str(user_id_1)
 
 
 @pytest.mark.asyncio
@@ -322,5 +391,8 @@ async def test_delete_invoices_by_user_id(
 
     await invoice_service.delete_invoices_by_user_id(user_id)
 
-    # Verify repository was called
-    mock_invoice_repository.delete_by_user_id.assert_called_once_with(str(user_id))
+    # Verify repository was called with correct args: delete_by_user_id(context, str(user_id))
+    assert mock_invoice_repository.delete_by_user_id.call_count == 1
+    delete_call = mock_invoice_repository.delete_by_user_id.call_args
+    assert len(delete_call.args) == 2  # context, user_id
+    assert delete_call.args[1] == str(user_id)

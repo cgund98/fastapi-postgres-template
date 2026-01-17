@@ -1,44 +1,56 @@
 """SQL repository for Invoice domain."""
 
-from typing import TYPE_CHECKING
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy import func, select
+from sqlmodel import Field, SQLModel
 
-from app.domain.billing.invoice.model import CreateInvoice, Invoice, InvoiceStatus
-from app.domain.billing.invoice.persistence.queries import (
-    count_invoices,
-    count_invoices_by_user_id,
-    delete_invoices_by_user_id,
-    insert_invoice,
-    select_invoice_by_id,
-    select_invoices_list_with_user_filter,
-    select_invoices_list_without_filter,
-    update_invoice,
-)
+from app.domain.billing.invoice.commands import CreateInvoice
+from app.domain.billing.invoice.model import Invoice, InvoiceStatus
 from app.domain.billing.invoice.repo.base import InvoiceRepository as BaseInvoiceRepository
 from app.infrastructure.db.exceptions import DatabaseError
+from app.infrastructure.sql.context import SQLContext
 from app.observability.logging import get_logger
-
-if TYPE_CHECKING:
-    from sqlalchemy import Result
-else:
-    Result = object  # Placeholder for runtime
 
 logger = get_logger(__name__)
 
 
-class InvoiceRepository(BaseInvoiceRepository):
-    """SQL implementation of Invoice repository using SQLAlchemy."""
+class InvoiceORM(SQLModel, table=True):
+    """Invoice ORM model for database persistence."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
-        """Initialize repository with a database connection."""
-        self._conn = conn
+    __tablename__ = "invoices"
 
-    async def create(self, create_invoice: CreateInvoice) -> Invoice:
+    id: UUID = Field(primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id")
+    amount: Decimal
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    paid_at: datetime | None = None
+
+
+class InvoiceRepository(BaseInvoiceRepository[SQLContext]):
+    """SQL implementation of Invoice repository using SQLModel."""
+
+    @staticmethod
+    def _orm_to_domain(orm_invoice: InvoiceORM) -> Invoice:
+        """Convert ORM model to domain model."""
+        return Invoice(
+            id=orm_invoice.id,
+            user_id=orm_invoice.user_id,
+            amount=orm_invoice.amount,
+            status=orm_invoice.status,
+            created_at=orm_invoice.created_at,
+            updated_at=orm_invoice.updated_at,
+            paid_at=orm_invoice.paid_at,
+        )
+
+    async def create(self, context: SQLContext, create_invoice: CreateInvoice) -> Invoice:
         """Create a new invoice."""
         try:
-            stmt = insert_invoice().values(
+            orm_invoice = InvoiceORM(
                 id=create_invoice.id,
                 user_id=create_invoice.user_id,
                 amount=create_invoice.amount,
@@ -46,81 +58,96 @@ class InvoiceRepository(BaseInvoiceRepository):
                 created_at=create_invoice.created_at,
                 updated_at=create_invoice.updated_at,
             )
-            result: Result = await self._conn.execute(stmt)
-            row = result.first()
-            if row is None:
-                raise DatabaseError()
-            return Invoice(**row._mapping)
+
+            context.session.add(orm_invoice)
+            await context.session.flush()
+            await context.session.refresh(orm_invoice)
+
+            return self._orm_to_domain(orm_invoice)
         except Exception as e:
             logger.exception("Database error while creating invoice")
             raise DatabaseError() from e
 
-    async def get_by_id(self, invoice_id: str) -> Invoice | None:
+    async def get_by_id(self, context: SQLContext, invoice_id: str) -> Invoice | None:
         """Get invoice by ID."""
         try:
-            stmt = select_invoice_by_id()
-            result: Result = await self._conn.execute(stmt, {"invoice_id": UUID(invoice_id)})
-            row = result.first()
-            if row is None:
+            orm_invoice = await context.session.get(InvoiceORM, UUID(invoice_id))
+
+            if orm_invoice is None:
                 return None
-            return Invoice(**row._mapping)
+
+            return self._orm_to_domain(orm_invoice)
         except Exception as e:
             logger.exception("Database error while retrieving invoice by ID")
             raise DatabaseError() from e
 
-    async def update(self, invoice: Invoice) -> Invoice:
+    async def update(self, context: SQLContext, invoice: Invoice) -> Invoice:
         """Update an existing invoice."""
         try:
-            stmt = update_invoice().values(
-                status=invoice.status,
-                paid_at=invoice.paid_at,
-                updated_at=invoice.updated_at,
-            )
-            result: Result = await self._conn.execute(stmt, {"invoice_id": invoice.id})
-            row = result.first()
-            if row is None:
-                raise DatabaseError()
-            return Invoice(**row._mapping)
+            # Get the existing invoice from the database
+            orm_invoice = await context.session.get(InvoiceORM, invoice.id)
+
+            if orm_invoice is None:
+                raise DatabaseError("Invoice not found")
+
+            # Update fields
+            orm_invoice.status = invoice.status
+            orm_invoice.paid_at = invoice.paid_at
+            orm_invoice.updated_at = invoice.updated_at
+
+            await context.session.flush()
+            await context.session.refresh(orm_invoice)
+
+            return self._orm_to_domain(orm_invoice)
         except Exception as e:
             logger.exception("Database error while updating invoice")
             raise DatabaseError() from e
 
-    async def delete_by_user_id(self, user_id: str) -> None:
+    async def delete_by_user_id(self, context: SQLContext, user_id: str) -> None:
         """Delete all invoices for a user."""
         try:
-            stmt = delete_invoices_by_user_id()
-            await self._conn.execute(stmt, {"user_id": UUID(user_id)})
+            statement = select(InvoiceORM).where(InvoiceORM.user_id == UUID(user_id))
+
+            result = await context.session.execute(statement)
+            orm_invoices = result.scalars().all()
+
+            for orm_invoice in orm_invoices:
+                await context.session.delete(orm_invoice)
+
+            await context.session.flush()
         except Exception as e:
             logger.exception("Database error while deleting invoices by user_id")
             raise DatabaseError() from e
 
-    async def list(self, limit: int, offset: int, user_id: str | None = None) -> list[Invoice]:
+    async def list(self, context: SQLContext, limit: int, offset: int, user_id: str | None = None) -> list[Invoice]:
         """List invoices with pagination and optional user_id filter."""
         try:
+            statement = select(InvoiceORM).order_by(InvoiceORM.created_at.desc())
+
             if user_id:
-                stmt = select_invoices_list_with_user_filter()
-                params = {"user_id": UUID(user_id), "limit": limit, "offset": offset}
-            else:
-                stmt = select_invoices_list_without_filter()
-                params = {"limit": limit, "offset": offset}
-            query_result: Result = await self._conn.execute(stmt, params)
-            rows = query_result.all()
-            return [Invoice(**row._mapping) for row in rows]
+                statement = statement.where(InvoiceORM.user_id == UUID(user_id))
+
+            statement = statement.limit(limit).offset(offset)
+
+            result = await context.session.execute(statement)
+            orm_invoices = result.scalars().all()
+
+            return [self._orm_to_domain(orm_invoice) for orm_invoice in orm_invoices]
         except Exception as e:
             logger.exception("Database error while listing invoices")
             raise DatabaseError() from e
 
-    async def count(self, user_id: str | None = None) -> int:
+    async def count(self, context: SQLContext, user_id: str | None = None) -> int:
         """Get total count of invoices, optionally filtered by user_id."""
         try:
+            statement = select(func.count()).select_from(InvoiceORM)
+
             if user_id:
-                stmt = count_invoices_by_user_id()
-                params = {"user_id": UUID(user_id)}
-            else:
-                stmt = count_invoices()
-                params = {}
-            query_result: Result = await self._conn.execute(stmt, params)
-            count = query_result.scalar()
+                statement = statement.where(InvoiceORM.user_id == UUID(user_id))
+
+            result = await context.session.execute(statement)
+            count = result.scalar()
+
             return count if count is not None else 0
         except Exception as e:
             logger.exception("Database error while counting invoices")

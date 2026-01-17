@@ -13,14 +13,13 @@ dependencies = [
     "pydantic[email] (>=2.12.5,<3.0.0)",
     "pydantic-settings>=2.5.0",
     "asyncpg>=0.29.0",
-    # SQLAlchemy Core only (no ORM features used)
-    # Note: SQLAlchemy doesn't have a separate sqlalchemy-core package;
-    # Core and ORM are in the same package, but we only use Core features
+    # SQLModel for type-safe database operations (built on SQLAlchemy ORM)
     "sqlalchemy[asyncio]>=2.0.0",
     "boto3>=1.35.0",
     "structlog>=24.4.0",
     "python-json-logger>=2.0.7",
     "uuid7 (>=0.1.0)",
+    "sqlmodel>=0.0.22",
 ]
 
 [build-system]
@@ -83,6 +82,14 @@ module = [
     "uuid_extensions",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "app.domain.*.repo.sql",
+]
+# SQLModel/SQLAlchemy column comparisons return SQL expressions, not bools
+# This is a known limitation of static type checking with SQLModel
+disable_error_code = ["arg-type", "attr-defined"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

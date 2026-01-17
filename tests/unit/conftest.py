@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -43,13 +44,19 @@ def mock_event_publisher() -> EventPublisher:
 
 
 @pytest.fixture
-def mock_transaction_manager() -> TransactionManager:
+def mock_context() -> Any:
+    """Create a mock context object."""
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_transaction_manager(mock_context: Any) -> TransactionManager:
     """Create a mock transaction manager."""
     mock_tx = MagicMock(spec=TransactionManager)
 
     @asynccontextmanager
-    async def mock_transaction() -> AsyncGenerator[None, None]:
-        yield None
+    async def mock_transaction() -> AsyncGenerator[Any, None]:
+        yield mock_context
 
     mock_tx.transaction = MagicMock(return_value=mock_transaction())
     return mock_tx
@@ -146,6 +153,7 @@ def invoice_paid_handler() -> InvoicePaidEventHandler:
 @pytest.fixture
 def invoice_payment_requested_handler(
     mock_event_publisher: EventPublisher,
+    mock_transaction_manager: Any,
 ) -> InvoicePaymentRequestedHandler:
     """Get an invoice payment requested handler for testing."""
-    return InvoicePaymentRequestedHandler(mock_event_publisher)
+    return InvoicePaymentRequestedHandler(mock_event_publisher, mock_transaction_manager)

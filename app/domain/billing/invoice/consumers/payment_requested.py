@@ -8,20 +8,21 @@ from app.domain.billing.invoice.repo.sql import InvoiceRepository
 from app.domain.billing.invoice.service import InvoiceService
 from app.domain.user.repo.sql import UserRepository
 from app.infrastructure.messaging.base import BaseEvent
+from app.infrastructure.messaging.handler import EventHandler
 from app.infrastructure.messaging.publisher import EventPublisher
-from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
 from app.infrastructure.sql.transaction import SQLTransactionManager
 from app.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class InvoicePaymentRequestedHandler:
+class InvoicePaymentRequestedHandler(EventHandler[InvoicePaymentRequestedEvent]):
     """Handler for invoice.payment_requested events."""
 
-    def __init__(self, event_publisher: EventPublisher) -> None:
-        """Initialize handler with event publisher."""
+    def __init__(self, event_publisher: EventPublisher, transaction_manager: SQLTransactionManager) -> None:
+        """Initialize handler with event publisher and transaction manager."""
         self._event_publisher = event_publisher
+        self._transaction_manager = transaction_manager
 
     async def handle(self, event: BaseEvent) -> None:
         """Handle invoice.payment_requested event."""
@@ -35,18 +36,16 @@ class InvoicePaymentRequestedHandler:
             aggregate_id=payment_event.aggregate_id,
         )
 
-        # Initialize database connection and service
-        async with SQLAlchemyPool.get_connection() as connection:
-            tx_manager = SQLTransactionManager(connection)
-            repository = InvoiceRepository(connection)
-            user_repository = UserRepository(connection)
+        # Use transaction manager which creates a session per transaction
+        repository = InvoiceRepository()
+        user_repository = UserRepository()
 
-            service = InvoiceService(repository, tx_manager, self._event_publisher, user_repository)
+        service = InvoiceService(repository, self._transaction_manager, self._event_publisher, user_repository)
 
-            # Mark invoice as paid (this will publish InvoicePaidEvent)
-            invoice_id = UUID(payment_event.aggregate_id)
-            await service.mark_invoice_paid(invoice_id)
-            logger.info(
-                "Successfully marked invoice as paid",
-                invoice_id=payment_event.aggregate_id,
-            )
+        # Mark invoice as paid (this will publish InvoicePaidEvent)
+        invoice_id = UUID(payment_event.aggregate_id)
+        await service.mark_invoice_paid(invoice_id)
+        logger.info(
+            "Successfully marked invoice as paid",
+            invoice_id=payment_event.aggregate_id,
+        )

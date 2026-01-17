@@ -49,7 +49,7 @@ lint: ## Run linters
 
 fix: ## Format code and fix linting issues
 	docker compose exec $(SERVICE) poetry run ruff format .
-	docker compose exec $(SERVICE) poetry run ruff check --select I --fix .
+	docker compose exec $(SERVICE) poetry run ruff check --fix .
 
 test: ## Run unit tests
 	docker compose exec $(SERVICE) poetry run pytest tests/unit

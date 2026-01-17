@@ -12,7 +12,7 @@
 
 *Built with ❤️ using Domain-Driven Design and Event-Driven Architecture*
 
-[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case) • [Development Guide](DEVELOPMENT.md)
+[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case) • [Development Guide](DEVELOPMENT.md) • [Architecture Details](ARCHITECTURE.md)
 
 </div>
 
@@ -39,14 +39,14 @@ This template is designed for **backend engineers** building:
 ### 🛠️ Technology Choices
 
 - **FastAPI**: Modern, high-performance web framework with automatic API documentation
-- **PostgreSQL**: SQLAlchemy Core query builders (no ORM) for type-safe, composable SQL queries
+- **PostgreSQL**: SQLModel ORM for type-safe database operations with domain/ORM separation
 - **Async/Await**: Fully asynchronous Python for optimal I/O-bound performance
 - **Type Safety**: Comprehensive type hints with mypy for compile-time error detection
 
 ### 📊 Observability & Operations
 
 - **Structured Logging**: JSON-formatted logs with structlog for easy parsing and analysis
-- **Health Checks**: Built-in health check endpoints for monitoring
+- **Health Checks**: Built-in health check endpoints that test database connectivity
 
 ### 👨‍💻 Developer Experience
 
@@ -67,8 +67,10 @@ This template follows a **3-tier architecture** with clear separation of concern
 ### Domain Layer (`app/domain/`)
 - **Models**: Domain entities with business logic
 - **Services**: Domain-specific business logic with integrated transaction management
-- **Repositories**: Data access interfaces using SQLAlchemy Core query builders
-- **Persistence**: Query builder functions (`persistence/queries.py`) and table definitions (`persistence/table.py`)
+- **Repositories**: Data access interfaces using SQLModel ORM
+  - ORM models defined in `repo/sql.py` files alongside repository implementations
+  - Repositories convert between ORM models and domain models
+- **Commands**: Command objects for operations (`commands.py`)
 - **Events**: Domain events for event-driven communication
 - **Consumers**: Event handlers for processing domain events
 
@@ -96,12 +98,12 @@ fastapi-postgres-template/
 │   │
 │   ├── domain/
 │   │   ├── user/                   # User domain
-│   │   │   ├── model.py
-│   │   │   ├── persistence/       # SQLAlchemy Core query builders
-│   │   │   │   ├── table.py        # Table definitions
-│   │   │   │   └── queries.py      # Query builder functions
-│   │   │   ├── events/
+│   │   │   ├── model.py            # Domain models (pure Pydantic)
+│   │   │   ├── commands.py         # Command objects
 │   │   │   ├── repo/               # Repository implementations
+│   │   │   │   ├── base.py         # Repository interface
+│   │   │   │   └── sql.py         # SQLModel ORM + ORM models
+│   │   │   ├── events/
 │   │   │   ├── service.py
 │   │   │   └── consumers/
 │   │   │
@@ -113,7 +115,7 @@ fastapi-postgres-template/
 │   │
 │   ├── infrastructure/
 │   │   ├── db/                     # Transaction manager interface
-│   │   ├── postgres/               # SQLAlchemy connection pool
+│   │   ├── sql/                    # SQLModel connection pool and transaction manager
 │   │   ├── messaging/              # Event publishing/consumption
 │   │   └── tasks/                  # Task execution
 │   │
@@ -180,38 +182,44 @@ make run-worker
 
 > 📖 For detailed development instructions, Makefile commands, and workflows, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-### 🔧 Query Builder Pattern
+### 🔧 SQLModel ORM Pattern
 
-Repositories use **SQLAlchemy Core query builders** defined in `persistence/queries.py`. This provides:
+Repositories use **SQLModel ORM** for type-safe database operations. This provides:
 
-- **Type Safety**: Query builders return typed query objects (`Select`, `Insert`, `Update`, `Delete`)
-- **Composability**: Queries can be built programmatically and reused across repositories
-- **Performance**: Direct SQL generation without ORM overhead
-- **Flexibility**: Full control over SQL while maintaining type safety
+- **Type Safety**: ORM models with full type hints and IDE support
+- **Domain Separation**: Pure Pydantic domain models separate from ORM concerns
+- **Simplicity**: Minimal boilerplate with automatic mapping
+- **Query Building**: Use SQLModel's query API for type-safe queries
 
-**Example query builder:**
-```python
-# In app/domain/user/persistence/queries.py
-def select_user_by_id() -> "Select":
-    """Create a SELECT query to get a user by ID."""
-    return select(
-        users_table.c.id,
-        users_table.c.email,
-        users_table.c.name,
-        users_table.c.age,
-        users_table.c.created_at,
-        users_table.c.updated_at,
-    ).where(users_table.c.id == bindparam("user_id"))
-```
-
-**Usage in repository:**
+**Example ORM model and repository:**
 ```python
 # In app/domain/user/repo/sql.py
-async def get_by_id(self, user_id: UUID) -> User | None:
-    stmt = select_user_by_id()
-    result = await self._conn.execute(stmt, {"user_id": str(user_id)})
-    row = result.first()
-    return User(**row._mapping) if row else None
+class UserORM(SQLModel, table=True):
+    """User ORM model for database persistence."""
+    __tablename__ = "users"
+    id: UUID = Field(primary_key=True)
+    email: str = Field(unique=True, index=True)
+    name: str
+    age: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+class UserRepository(BaseUserRepository[SQLContext]):
+    @staticmethod
+    def _orm_to_domain(orm_user: UserORM) -> User:
+        """Convert ORM model to domain model."""
+        return User(
+            id=orm_user.id,
+            email=orm_user.email,
+            name=orm_user.name,
+            age=orm_user.age,
+            created_at=orm_user.created_at,
+            updated_at=orm_user.updated_at,
+        )
+    
+    async def get_by_id(self, context: SQLContext, user_id: UUID) -> User | None:
+        orm_user = await context.session.get(UserORM, user_id)
+        return self._orm_to_domain(orm_user) if orm_user else None
 ```
 
 ## 💼 Example Business Case
