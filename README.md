@@ -12,7 +12,7 @@
 
 *Built with ❤️ using Domain-Driven Design and Event-Driven Architecture*
 
-[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case)
+[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case) • [Development Guide](DEVELOPMENT.md)
 
 </div>
 
@@ -120,7 +120,8 @@ fastapi-postgres-template/
 │   └── observability/              # Logging
 │
 ├── tests/
-│   └── domain/                     # Unit tests with mocked dependencies
+│   └── unit/                       # Unit tests with mocked dependencies
+│       └── domain/                 
 │
 ├── resources/
 │   ├── db/migrations/              # Database migrations
@@ -133,105 +134,51 @@ fastapi-postgres-template/
 └── README.md
 ```
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Python 3.12+
-- Poetry
-- PostgreSQL 15+
-- Docker (optional)
-- AWS CLI (for infrastructure deployment)
+- **Docker** and **Docker Compose** (required)
+- **AWS CLI** (optional, for infrastructure deployment)
 
-### Installation
+> 💡 **Note**: This project uses a **workspace container** with all development tools pre-installed. See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed setup instructions.
 
-1. Clone the repository:
+### Running the Example
+
+1. **Clone and start services:**
 ```bash
 git clone <repository-url>
 cd fastapi-postgres-template
+make workspace-build
+make workspace-up
+make poetry-install
 ```
 
-2. Install dependencies:
+2. **Set up database and LocalStack:**
 ```bash
-make dev-install
-# or
-poetry install
-```
-
-3. Set up environment variables:
-```bash
-# Copy the example file for local development (non-secret values)
-cp .env.local.example .env.local
-
-# Edit .env.local with your local configuration
-# Note: .env.local is gitignored and contains non-secret local values
-# Use .env for secrets (also gitignored)
-```
-
-4. Set up LocalStack (for local development):
-```bash
-# Start LocalStack
-docker-compose up -d localstack
-
-# Wait for LocalStack to be healthy, then run setup script
-./resources/scripts/setup_localstack.sh
-
-# Copy the output values to your .env.local file
-```
-
-5. Set up the database:
-```bash
-# Start PostgreSQL
-docker-compose up -d postgres
-
-# Run migrations
+docker compose up -d postgres localstack
+make localstack-setup
 make migrate
 ```
 
-### Running Locally
-
-**API Server:**
+3. **Run the API server:**
 ```bash
 make run-api
-# or
-uvicorn entry.api.main:app --reload
-```
 
-**Worker:**
-```bash
+# In a seperate terminal, start the consumer
 make run-worker
-# or
-python -m entry.worker.main
 ```
 
-### Development
+4. **Visit the API documentation:**
+   - Swagger UI: http://localhost:8000/docs
+   - ReDoc: http://localhost:8000/redoc
 
-**Linting:**
-```bash
-make lint
-```
+5. **Try the example endpoints:**
+   - Create a user: `POST /users` with `{"email": "user@example.com", "name": "John Doe", "age": 30}`
+   - Create an invoice: `POST /invoices` with `{"user_id": "<user_id>", "amount": 100.00}`
+   - Request payment: `POST /invoices/{invoice_id}/request-payment`
 
-**Formatting:**
-```bash
-make format
-```
-
-**Type Checking:**
-```bash
-# Type checking is included in lint command
-make lint
-# or run mypy directly
-poetry run mypy .
-```
-
-**Testing:**
-```bash
-make test
-# or
-poetry run pytest
-```
-
-The test suite uses mocked dependencies for fast, isolated unit tests. All service tests mock repositories and transaction managers, ensuring tests run quickly without requiring a database connection.
+> 📖 For detailed development instructions, Makefile commands, and workflows, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ### 🔧 Query Builder Pattern
 
@@ -299,17 +246,14 @@ This example showcases how to structure a multi-domain system with event-driven 
 
 ## 🗄️ Database Schema
 
-The template includes example domains (User and Invoice). Database migrations are managed using [migrate](https://github.com/golang-migrate/migrate) and located in `resources/db/migrations/`.
-
-To run migrations:
-```bash
-make migrate
-```
+The template includes example domains (User and Invoice). Database migrations are managed using [golang-migrate](https://github.com/golang-migrate/migrate) and located in `resources/db/migrations/`.
 
 The schema includes:
 
 - **Users table**: Stores user information with email uniqueness
 - **Invoices table**: Stores invoices linked to users with status tracking
+
+> 📖 For migration commands and database setup, see [DEVELOPMENT.md](DEVELOPMENT.md#-database-migrations).
 
 ## 📨 Event System
 
@@ -349,21 +293,12 @@ await invoice_payment_requested_handler.handle(event)
 
 ## 🐳 Docker
 
-The API and worker **share the same Docker image**, with different entrypoints:
+The project uses Docker for both development and production:
 
-```bash
-# Build the shared image
-docker build -f resources/docker/app.Dockerfile -t app:latest .
+- **Workspace Container**: Consistent development environment with all tools pre-installed
+- **Production Images**: Optimized images for API, worker, and migrations
 
-# Run API server (default)
-docker run -p 8000:8000 app:latest
-
-# Run worker (override CMD)
-docker run app:latest python -m entry.worker.main
-
-# Or use docker-compose (create docker-compose.yml as needed)
-docker-compose up
-```
+> 📖 For Docker setup and usage, see [DEVELOPMENT.md](DEVELOPMENT.md#-docker).
 
 ## ☁️ Infrastructure
 
@@ -395,8 +330,11 @@ Contributions are welcome! Please follow these guidelines:
 2. ✅ Maintain type hints throughout (mypy must pass)
 3. ✅ Write tests for new features with mocked dependencies
 4. ✅ Run linting and type checking before committing (`make lint`)
-5. ✅ Follow the Makefile commands for common tasks
-6. ✅ Update documentation for any architectural changes
+5. ✅ Use the workspace container for all development tasks
+6. ✅ Follow the Makefile commands for common tasks
+7. ✅ Update documentation for any architectural changes
+
+> 📖 For detailed development workflow and guidelines, see [DEVELOPMENT.md](DEVELOPMENT.md#-contributing).
 
 ## 📝 License
 
