@@ -58,7 +58,7 @@ services:
     build:
       context: .
       dockerfile: resources/docker/workspace.Dockerfile
-    image: app-workspace:latest
+    image: fastapi-postgres-template-workspace:latest
     platform: linux/amd64
     container_name: fastapi-postgres-template-workspace
     volumes:
