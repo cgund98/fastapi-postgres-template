@@ -10,7 +10,6 @@ from app.domain.billing.invoice.consumers.invoice_events import (
     InvoicePaidEventHandler,
 )
 from app.domain.billing.invoice.events.invoice_events import InvoiceCreatedEvent, InvoicePaidEvent
-from app.infrastructure.messaging.base import BaseEvent
 
 
 @pytest.mark.asyncio
@@ -29,21 +28,6 @@ async def test_invoice_created_handler(
 
 
 @pytest.mark.asyncio
-async def test_invoice_created_handler_wrong_type(
-    invoice_created_handler: InvoiceCreatedEventHandler,
-) -> None:
-    """Test InvoiceCreatedEventHandler with wrong event type."""
-    wrong_event = BaseEvent(
-        aggregate_id=str(uuid4()),
-        event_type="test.event",
-        aggregate_type="test",
-    )
-
-    with pytest.raises(TypeError):
-        await invoice_created_handler.handle(wrong_event)
-
-
-@pytest.mark.asyncio
 async def test_invoice_paid_handler(
     invoice_paid_handler: InvoicePaidEventHandler,
 ) -> None:
@@ -56,18 +40,3 @@ async def test_invoice_paid_handler(
 
     # Should not raise an exception
     await invoice_paid_handler.handle(event)
-
-
-@pytest.mark.asyncio
-async def test_invoice_paid_handler_wrong_type(
-    invoice_paid_handler: InvoicePaidEventHandler,
-) -> None:
-    """Test InvoicePaidEventHandler with wrong event type."""
-    wrong_event = BaseEvent(
-        aggregate_id=str(uuid4()),
-        event_type="test.event",
-        aggregate_type="test",
-    )
-
-    with pytest.raises(TypeError):
-        await invoice_paid_handler.handle(wrong_event)

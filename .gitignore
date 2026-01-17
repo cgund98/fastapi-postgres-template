@@ -25,6 +25,8 @@ venv/
 env/
 ENV/
 .venv
+.venv.local
+requirements.local.txt
 
 # IDEs
 .vscode/
@@ -35,7 +37,6 @@ ENV/
 
 # Environment
 .env
-.env.local
 
 # Testing
 .pytest_cache/

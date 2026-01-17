@@ -2,19 +2,17 @@
 
 from app.domain.user.events.constants import UserEventType
 from app.domain.user.events.user_events import UserCreatedEvent, UserUpdatedEvent
-from app.infrastructure.messaging.base import BaseEvent
+from app.infrastructure.messaging.handler import EventHandler
 from app.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class UserCreatedEventHandler:
+class UserCreatedEventHandler(EventHandler[UserCreatedEvent]):
     """Handler for user.created events."""
 
-    async def handle(self, event: BaseEvent) -> None:
+    async def handle(self, event: UserCreatedEvent) -> None:
         """Handle user.created event."""
-        if not isinstance(event, UserCreatedEvent):
-            raise TypeError(f"Expected UserCreatedEvent, got {type(event)}")
         user_event = event  # Type narrowing
         logger.info(
             f"Processing {UserEventType.CREATED} event",
@@ -27,13 +25,11 @@ class UserCreatedEventHandler:
         # Example: send welcome email, create user profile, etc.
 
 
-class UserUpdatedEventHandler:
+class UserUpdatedEventHandler(EventHandler[UserUpdatedEvent]):
     """Handler for user.updated events."""
 
-    async def handle(self, event: BaseEvent) -> None:
+    async def handle(self, event: UserUpdatedEvent) -> None:
         """Handle user.updated event."""
-        if not isinstance(event, UserUpdatedEvent):
-            raise TypeError(f"Expected UserUpdatedEvent, got {type(event)}")
         user_event = event  # Type narrowing
         logger.info(
             f"Processing {UserEventType.UPDATED} event",

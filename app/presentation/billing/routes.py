@@ -1,5 +1,6 @@
 """Billing API routes."""
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -16,10 +17,10 @@ router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 @router.get("", response_model=PaginatedResponse[InvoiceResponse])
 async def list_invoices(
+    service: Annotated[InvoiceService, Depends(get_invoice_service)],
     page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(default=20, ge=1, le=100, description="Number of items per page"),
     user_id: UUID | None = Query(default=None, description="Filter by user ID"),
-    service: InvoiceService = Depends(get_invoice_service),
 ) -> PaginatedResponse[InvoiceResponse]:
     """List invoices with pagination and optional user_id filter."""
     limit, offset = page_to_limit_offset(page, page_size)
@@ -47,7 +48,7 @@ async def list_invoices(
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_invoice(
     request: InvoiceCreateRequest,
-    service: InvoiceService = Depends(get_invoice_service),
+    service: Annotated[InvoiceService, Depends(get_invoice_service)],
 ) -> InvoiceResponse:
     """Create a new invoice."""
     invoice = await service.create_invoice(user_id=request.user_id, amount=request.amount)
@@ -65,7 +66,7 @@ async def create_invoice(
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: UUID,
-    service: InvoiceService = Depends(get_invoice_service),
+    service: Annotated[InvoiceService, Depends(get_invoice_service)],
 ) -> InvoiceResponse:
     """Get invoice by ID."""
     invoice = await service.get_invoice(invoice_id)
@@ -87,7 +88,7 @@ async def get_invoice(
 @router.post("/{invoice_id}/pay", response_model=InvoiceResponse)
 async def pay_invoice(
     invoice_id: UUID,
-    service: InvoiceService = Depends(get_invoice_service),
+    service: Annotated[InvoiceService, Depends(get_invoice_service)],
 ) -> InvoiceResponse:
     """Request payment for an invoice (triggers async processing)."""
     invoice = await service.request_payment(invoice_id)

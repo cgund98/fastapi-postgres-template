@@ -1,6 +1,7 @@
 """FastAPI dependencies for user routes."""
 
 from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import Depends
 
@@ -18,10 +19,10 @@ from app.presentation.deps import (
 
 
 async def get_user_service(
-    repository: UserRepository = Depends(get_user_repository),
-    tx_manager: SQLTransactionManager = Depends(get_transaction_manager),
-    event_publisher: EventPublisher = Depends(get_event_publisher),
-    invoice_service: InvoiceService = Depends(get_invoice_service),
+    repository: Annotated[UserRepository, Depends(get_user_repository)],
+    tx_manager: Annotated[SQLTransactionManager, Depends(get_transaction_manager)],
+    event_publisher: Annotated[EventPublisher, Depends(get_event_publisher)],
+    invoice_service: Annotated[InvoiceService, Depends(get_invoice_service)],
 ) -> AsyncGenerator[UserService, None]:
     """Dependency to get user service."""
     yield UserService(repository, tx_manager, event_publisher, invoice_service)

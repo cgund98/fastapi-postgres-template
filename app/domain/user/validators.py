@@ -4,40 +4,41 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.domain.exceptions import NotFoundError, ValidationError
-from app.domain.types import RequiredOrUnset, Unset
 from app.domain.user.repo.base import UserRepository
 
 if TYPE_CHECKING:
     from app.domain.user.model import User
 
 
-def validate_name(name: RequiredOrUnset[str]) -> None:
+def validate_name(name: str | None) -> None:
     """
     Validate user name.
 
     Args:
-        name: The name to validate (must be str if not UNSET)
+        name: The name to validate (if provided)
 
     Raises:
         ValidationError: If name is empty or whitespace-only
     """
-    if isinstance(name, Unset):
+    if name is None:
         return
 
     if not name or not name.strip():
         raise ValidationError("Name cannot be empty", field="name")
 
 
-async def validate_email_not_duplicate(
-    email: RequiredOrUnset[str],
+async def validate_email_not_duplicate[TContext](
+    *,
+    email: str | None,
     current_email: str,
-    repository: UserRepository,
+    repository: UserRepository[TContext],
+    context: TContext,
 ) -> None:
     """
     Validate that email is not a duplicate.
 
     Args:
-        email: The email to validate (must be str if not UNSET)
+        email: The email to validate (if provided)
         current_email: The current email of the user being updated
         repository: User repository to check for duplicates
 
@@ -46,16 +47,18 @@ async def validate_email_not_duplicate(
     """
     from app.infrastructure.db.exceptions import DuplicateError
 
-    if isinstance(email, Unset):
+    if email is None:
         return
 
     if email != current_email:
-        existing = await repository.get_by_email(email)
+        existing = await repository.get_by_email(context, email)
         if existing is not None:
             raise DuplicateError(entity_type="User", field="email", value=email)
 
 
-async def validate_create_user_request(email: str, name: str, repository: UserRepository) -> None:
+async def validate_create_user_request[TContext](
+    *, email: str, name: str, repository: UserRepository[TContext], context: TContext
+) -> None:
     """
     Validate user creation request.
 
@@ -75,16 +78,18 @@ async def validate_create_user_request(email: str, name: str, repository: UserRe
         raise ValidationError("Name cannot be empty", field="name")
 
     # Check if user already exists
-    existing = await repository.get_by_email(email)
+    existing = await repository.get_by_email(context, email)
     if existing is not None:
         raise DuplicateError(entity_type="User", field="email", value=email)
 
 
-async def validate_patch_user_request(
+async def validate_patch_user_request[TContext](
+    *,
     user_id: UUID,
-    email: RequiredOrUnset[str],
-    name: RequiredOrUnset[str],
-    repository: UserRepository,
+    email: str | None,
+    name: str | None,
+    repository: UserRepository[TContext],
+    context: TContext,
 ) -> "User":
     """
     Validate user patch request.
@@ -104,7 +109,7 @@ async def validate_patch_user_request(
         DuplicateError: If email already exists for another user
     """
     # Validate user exists
-    user = await repository.get_by_id(user_id)
+    user = await repository.get_by_id(context, user_id)
     if user is None:
         raise NotFoundError(entity_type="User", identifier=str(user_id))
 
@@ -112,12 +117,14 @@ async def validate_patch_user_request(
     validate_name(name)
 
     # Validate email if provided
-    await validate_email_not_duplicate(email, user.email, repository)
+    await validate_email_not_duplicate(email=email, current_email=user.email, repository=repository, context=context)
 
     return user
 
 
-async def validate_delete_user_request(user_id: UUID, repository: UserRepository) -> "User":
+async def validate_delete_user_request[TContext](
+    *, user_id: UUID, repository: UserRepository[TContext], context: TContext
+) -> "User":
     """
     Validate user deletion request.
 
@@ -131,7 +138,7 @@ async def validate_delete_user_request(user_id: UUID, repository: UserRepository
     Raises:
         NotFoundError: If user does not exist
     """
-    user = await repository.get_by_id(user_id)
+    user = await repository.get_by_id(context, user_id)
     if user is None:
         raise NotFoundError(entity_type="User", identifier=str(user_id))
 

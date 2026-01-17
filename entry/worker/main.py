@@ -1,7 +1,7 @@
 """Async event consumer worker entrypoint."""
 
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 from app.config.settings import get_settings
 from app.domain.billing.invoice.consumers.invoice_events import (
@@ -28,6 +28,7 @@ from app.infrastructure.messaging.consumer import SQSConsumer, SQSConsumerConfig
 from app.infrastructure.messaging.handler import EventHandler
 from app.infrastructure.messaging.publisher import EventPublisher, SNSPublisher
 from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
+from app.infrastructure.sql.transaction import SQLTransactionManager
 from app.observability.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -43,14 +44,16 @@ EVENT_CLASSES: dict[str, type[BaseEvent]] = {
 }
 
 
-def create_event_handlers(event_publisher: EventPublisher) -> dict[str, EventHandler]:
+def create_event_handlers(
+    event_publisher: EventPublisher, transaction_manager: SQLTransactionManager
+) -> dict[str, EventHandler]:
     """Create event handlers with their dependencies."""
     return {
-        UserEventType.CREATED: cast(EventHandler, UserCreatedEventHandler()),
-        UserEventType.UPDATED: cast(EventHandler, UserUpdatedEventHandler()),
-        InvoiceEventType.CREATED: cast(EventHandler, InvoiceCreatedEventHandler()),
-        InvoiceEventType.PAYMENT_REQUESTED: cast(EventHandler, InvoicePaymentRequestedHandler(event_publisher)),
-        InvoiceEventType.PAID: cast(EventHandler, InvoicePaidEventHandler()),
+        UserEventType.CREATED: UserCreatedEventHandler(),
+        UserEventType.UPDATED: UserUpdatedEventHandler(),
+        InvoiceEventType.CREATED: InvoiceCreatedEventHandler(),
+        InvoiceEventType.PAYMENT_REQUESTED: InvoicePaymentRequestedHandler(event_publisher, transaction_manager),
+        InvoiceEventType.PAID: InvoicePaidEventHandler(),
     }
 
 
@@ -145,9 +148,10 @@ async def main() -> None:
     setup_logging(settings)
     logger.info("Starting event consumer worker", environment=settings.environment)
 
-    # Initialize SQLAlchemy database engine
-    SQLAlchemyPool.create_engine(settings)
-    logger.info("Database engine initialized")
+    # Initialize application container with lifecycle dependencies
+    db_pool = SQLAlchemyPool(settings)
+    transaction_manager = SQLTransactionManager(db_pool)
+    logger.info("Application container initialized")
 
     # Create event publisher for handlers that need it
     topic_arn = settings.default_event_topic_arn
@@ -157,7 +161,7 @@ async def main() -> None:
     event_publisher = EventPublisher(sns_publisher)
 
     # Create event handlers with dependencies
-    event_handlers = create_event_handlers(event_publisher)
+    event_handlers = create_event_handlers(event_publisher, transaction_manager)
 
     # Get queue URLs from settings
     queue_urls = settings.event_queue_urls
@@ -200,6 +204,9 @@ async def main() -> None:
             task.cancel()
         # Wait for tasks to complete cancellation
         await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        await db_pool.close()
+        logger.info("Database pool closed")
 
 
 if __name__ == "__main__":

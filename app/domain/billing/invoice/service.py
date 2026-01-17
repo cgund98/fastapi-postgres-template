@@ -6,13 +6,14 @@ from uuid import UUID
 
 from uuid_extensions import uuid7str
 
+from app.domain.billing.invoice.commands import CreateInvoice
 from app.domain.billing.invoice.events.invoice_events import (
     InvoiceCreatedEvent,
     InvoicePaidEvent,
     InvoicePaymentRequestedEvent,
 )
-from app.domain.billing.invoice.model import CreateInvoice, Invoice, InvoiceStatus
-from app.domain.billing.invoice.repo.sql import InvoiceRepository
+from app.domain.billing.invoice.model import Invoice, InvoiceStatus
+from app.domain.billing.invoice.repo.base import InvoiceRepository
 from app.domain.billing.invoice.validators import validate_create_invoice_request
 from app.domain.exceptions import BusinessRuleError, NotFoundError
 from app.domain.user.repo.base import UserRepository
@@ -20,15 +21,15 @@ from app.infrastructure.db.transaction import TransactionManager
 from app.infrastructure.messaging.publisher import EventPublisher
 
 
-class InvoiceService:
+class InvoiceService[TContext]:
     """Invoice domain service."""
 
     def __init__(
         self,
-        repository: InvoiceRepository,
-        transaction_manager: TransactionManager,
+        repository: InvoiceRepository[TContext],
+        transaction_manager: TransactionManager[TContext],
         event_publisher: EventPublisher,
-        user_repository: UserRepository,
+        user_repository: UserRepository[TContext],
     ) -> None:
         """Initialize invoice service."""
         self._repo = repository
@@ -38,9 +39,9 @@ class InvoiceService:
 
     async def create_invoice(self, user_id: UUID, amount: Decimal) -> Invoice:
         """Create a new invoice."""
-        async with self._tx_manager.transaction():
+        async with self._tx_manager.transaction() as context:
             # Validate request
-            await validate_create_invoice_request(user_id, self._user_repo)
+            await validate_create_invoice_request(user_id=user_id, user_repository=self._user_repo, context=context)
 
             # Generate V7 UUID (timestamp-centric) and timestamps
             invoice_id = uuid7str()
@@ -48,7 +49,7 @@ class InvoiceService:
             create_invoice = CreateInvoice(
                 id=invoice_id, user_id=user_id, amount=amount, created_at=now, updated_at=now
             )
-            invoice = await self._repo.create(create_invoice)
+            invoice = await self._repo.create(context, create_invoice)
 
             # Publish event (after commit)
             created_event = InvoiceCreatedEvent(
@@ -66,13 +67,13 @@ class InvoiceService:
 
     async def get_invoice(self, invoice_id: UUID) -> Invoice | None:
         """Get invoice by ID."""
-        async with self._tx_manager.transaction():
-            return await self._repo.get_by_id(str(invoice_id))
+        async with self._tx_manager.transaction() as context:
+            return await self._repo.get_by_id(context, str(invoice_id))
 
     async def mark_invoice_paid(self, invoice_id: UUID) -> Invoice:
         """Mark an invoice as paid."""
-        async with self._tx_manager.transaction():
-            invoice = await self._repo.get_by_id(str(invoice_id))
+        async with self._tx_manager.transaction() as context:
+            invoice = await self._repo.get_by_id(context, str(invoice_id))
             if invoice is None:
                 raise NotFoundError(entity_type="Invoice", identifier=str(invoice_id))
 
@@ -90,7 +91,7 @@ class InvoiceService:
                 paid_at=datetime.now(),
                 updated_at=datetime.now(),
             )
-            updated_invoice = await self._repo.update(updated_invoice)
+            updated_invoice = await self._repo.update(context, updated_invoice)
 
             # Publish event (after commit)
             event = InvoicePaidEvent(
@@ -104,13 +105,13 @@ class InvoiceService:
 
     async def delete_invoices_by_user_id(self, user_id: UUID) -> None:
         """Delete all invoices for a user."""
-        async with self._tx_manager.transaction():
-            await self._delete_invoices_by_user_id_in_transaction(user_id)
+        async with self._tx_manager.transaction() as context:
+            await self._delete_invoices_by_user_id_in_transaction(context, user_id)
 
     async def request_payment(self, invoice_id: UUID) -> Invoice:
         """Request payment for an invoice (publishes payment requested event)."""
-        async with self._tx_manager.transaction():
-            invoice = await self._repo.get_by_id(str(invoice_id))
+        async with self._tx_manager.transaction() as context:
+            invoice = await self._repo.get_by_id(context, str(invoice_id))
             if invoice is None:
                 raise NotFoundError(entity_type="Invoice", identifier=str(invoice_id))
 
@@ -122,13 +123,13 @@ class InvoiceService:
 
     async def list_invoices(self, limit: int, offset: int, user_id: UUID | None = None) -> tuple[list[Invoice], int]:
         """List invoices with pagination and optional user_id filter."""
-        async with self._tx_manager.transaction():
+        async with self._tx_manager.transaction() as context:
             user_id_str = str(user_id) if user_id else None
-            invoices = await self._repo.list(limit=limit, offset=offset, user_id=user_id_str)
-            total = await self._repo.count(user_id=user_id_str)
+            invoices = await self._repo.list(context, limit=limit, offset=offset, user_id=user_id_str)
+            total = await self._repo.count(context, user_id=user_id_str)
             return invoices, total
 
-    async def _delete_invoices_by_user_id_in_transaction(self, user_id: UUID) -> None:
+    async def _delete_invoices_by_user_id_in_transaction(self, context: TContext, user_id: UUID) -> None:
         """
         Delete invoices when already in a transaction.
 
@@ -136,4 +137,4 @@ class InvoiceService:
         It does not manage transaction lifecycle, allowing it to be called from
         another service that manages the transaction (e.g., UserService).
         """
-        await self._repo.delete_by_user_id(str(user_id))
+        await self._repo.delete_by_user_id(context, str(user_id))

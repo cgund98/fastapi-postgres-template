@@ -1,7 +1,7 @@
 """User domain diff utilities."""
 
-from app.domain.types import UNSET
-from app.domain.user.model import User, UserUpdate
+from app.domain.user.commands import UserUpdate
+from app.domain.user.model import User
 
 
 def generate_user_changes(user_update: UserUpdate, original_user: User) -> dict[str, dict[str, str]]:
@@ -18,25 +18,19 @@ def generate_user_changes(user_update: UserUpdate, original_user: User) -> dict[
     """
     changes: dict[str, dict[str, str]] = {}
 
-    # Check email changes (RequiredOrUnset[str])
-    if user_update.email is not UNSET:
-        email_str: str = user_update.email  # type: ignore[assignment]
-        if email_str != original_user.email:
-            changes["email"] = {"old": original_user.email, "new": email_str}
+    # Check email changes
+    if user_update.email is not None and user_update.email != original_user.email:
+        changes["email"] = {"old": original_user.email, "new": user_update.email}
 
-    # Check name changes (RequiredOrUnset[str])
-    if user_update.name is not UNSET:
-        name_str: str = user_update.name  # type: ignore[assignment]
-        if name_str != original_user.name:
-            changes["name"] = {"old": original_user.name, "new": name_str}
+    # Check name changes
+    if user_update.name is not None and user_update.name != original_user.name:
+        changes["name"] = {"old": original_user.name, "new": user_update.name}
 
-    # Check age changes (OptionalOrUnset[int])
-    if user_update.age is not UNSET:
-        age_value: int | None = user_update.age  # type: ignore[assignment]
-        if age_value != original_user.age:
-            changes["age"] = {
-                "old": str(original_user.age) if original_user.age is not None else "None",
-                "new": str(age_value) if age_value is not None else "None",
-            }
+    # Check age changes
+    if user_update.age is not None and user_update.age != original_user.age:
+        changes["age"] = {
+            "old": str(original_user.age) if original_user.age is not None else "None",
+            "new": str(user_update.age) if user_update.age is not None else "None",
+        }
 
     return changes

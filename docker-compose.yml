@@ -54,6 +54,40 @@ services:
     profiles:
       - migrate
 
+  workspace:
+    build:
+      context: .
+      dockerfile: resources/docker/workspace.Dockerfile
+    image: fastapi-postgres-template-workspace:latest
+    platform: linux/amd64
+    container_name: fastapi-postgres-template-workspace
+    volumes:
+      # Mount the entire project directory
+      - .:/workspace
+    ports:
+      - "8000:8000"
+    environment:
+      # Database connection for migrations and tests
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=app
+      # AWS/LocalStack configuration
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    profiles:
+      - workspace
+
 volumes:
   postgres_data:
 

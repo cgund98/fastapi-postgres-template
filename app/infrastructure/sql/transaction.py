@@ -3,31 +3,32 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.ext.asyncio import AsyncConnection
-
-from app.infrastructure.db.transaction import TransactionManager
+from app.infrastructure.sql.context import SQLContext
+from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
 from app.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class SQLTransactionManager(TransactionManager):
-    """SQL implementation of TransactionManager using SQLAlchemy."""
+class SQLTransactionManager:
+    """SQL implementation of TransactionManager using SQLModel."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
-        """Initialize with a SQLAlchemy connection."""
-        self.conn = conn
+    def __init__(self, db_pool: SQLAlchemyPool) -> None:
+        """Initialize with a database pool."""
+        self._db_pool = db_pool
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncGenerator[None, Exception | None]:
+    async def transaction(self) -> AsyncGenerator[SQLContext, Exception | None]:
         """
-        Context manager that will commit transactions or roll back if an exception is raised.
+        Context manager that creates a new session for each transaction.
+        Yields the session as the database context.
+        Commits on success or rolls back if an exception is raised.
         """
-        async with self.conn.begin():
+        async with self._db_pool.get_session() as session:
             try:
-                yield
-                await self.conn.commit()
+                yield SQLContext(session=session)
+                await session.commit()
             except Exception as ex:
                 logger.debug("Encountered exception when handling transaction. Rolling back transaction...")
-                await self.conn.rollback()
+                await session.rollback()
                 raise ex

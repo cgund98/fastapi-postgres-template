@@ -12,7 +12,7 @@
 
 *Built with ❤️ using Domain-Driven Design and Event-Driven Architecture*
 
-[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case)
+[Features](#-features) • [Quick Start](#-getting-started) • [Architecture](#-architecture) • [Example](#-example-business-case) • [Development Guide](DEVELOPMENT.md) • [Architecture Details](ARCHITECTURE.md)
 
 </div>
 
@@ -39,14 +39,14 @@ This template is designed for **backend engineers** building:
 ### 🛠️ Technology Choices
 
 - **FastAPI**: Modern, high-performance web framework with automatic API documentation
-- **PostgreSQL**: SQLAlchemy Core query builders (no ORM) for type-safe, composable SQL queries
+- **PostgreSQL**: SQLModel ORM for type-safe database operations with domain/ORM separation
 - **Async/Await**: Fully asynchronous Python for optimal I/O-bound performance
 - **Type Safety**: Comprehensive type hints with mypy for compile-time error detection
 
 ### 📊 Observability & Operations
 
 - **Structured Logging**: JSON-formatted logs with structlog for easy parsing and analysis
-- **Health Checks**: Built-in health check endpoints for monitoring
+- **Health Checks**: Built-in health check endpoints that test database connectivity
 
 ### 👨‍💻 Developer Experience
 
@@ -67,8 +67,10 @@ This template follows a **3-tier architecture** with clear separation of concern
 ### Domain Layer (`app/domain/`)
 - **Models**: Domain entities with business logic
 - **Services**: Domain-specific business logic with integrated transaction management
-- **Repositories**: Data access interfaces using SQLAlchemy Core query builders
-- **Persistence**: Query builder functions (`persistence/queries.py`) and table definitions (`persistence/table.py`)
+- **Repositories**: Data access interfaces using SQLModel ORM
+  - ORM models defined in `repo/sql.py` files alongside repository implementations
+  - Repositories convert between ORM models and domain models
+- **Commands**: Command objects for operations (`commands.py`)
 - **Events**: Domain events for event-driven communication
 - **Consumers**: Event handlers for processing domain events
 
@@ -96,12 +98,12 @@ fastapi-postgres-template/
 │   │
 │   ├── domain/
 │   │   ├── user/                   # User domain
-│   │   │   ├── model.py
-│   │   │   ├── persistence/       # SQLAlchemy Core query builders
-│   │   │   │   ├── table.py        # Table definitions
-│   │   │   │   └── queries.py      # Query builder functions
-│   │   │   ├── events/
+│   │   │   ├── model.py            # Domain models (pure Pydantic)
+│   │   │   ├── commands.py         # Command objects
 │   │   │   ├── repo/               # Repository implementations
+│   │   │   │   ├── base.py         # Repository interface
+│   │   │   │   └── sql.py         # SQLModel ORM + ORM models
+│   │   │   ├── events/
 │   │   │   ├── service.py
 │   │   │   └── consumers/
 │   │   │
@@ -113,14 +115,15 @@ fastapi-postgres-template/
 │   │
 │   ├── infrastructure/
 │   │   ├── db/                     # Transaction manager interface
-│   │   ├── postgres/               # SQLAlchemy connection pool
+│   │   ├── sql/                    # SQLModel connection pool and transaction manager
 │   │   ├── messaging/              # Event publishing/consumption
 │   │   └── tasks/                  # Task execution
 │   │
 │   └── observability/              # Logging
 │
 ├── tests/
-│   └── domain/                     # Unit tests with mocked dependencies
+│   └── unit/                       # Unit tests with mocked dependencies
+│       └── domain/                 
 │
 ├── resources/
 │   ├── db/migrations/              # Database migrations
@@ -133,138 +136,90 @@ fastapi-postgres-template/
 └── README.md
 ```
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Python 3.12+
-- Poetry
-- PostgreSQL 15+
-- Docker (optional)
-- AWS CLI (for infrastructure deployment)
+- **Docker** and **Docker Compose** (required)
+- **AWS CLI** (optional, for infrastructure deployment)
 
-### Installation
+> 💡 **Note**: This project uses a **workspace container** with all development tools pre-installed. See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed setup instructions.
 
-1. Clone the repository:
+### Running the Example
+
+1. **Clone and start services:**
 ```bash
 git clone <repository-url>
 cd fastapi-postgres-template
+make workspace-build
+make workspace-up
+make poetry-install
 ```
 
-2. Install dependencies:
+2. **Set up database and LocalStack:**
 ```bash
-make dev-install
-# or
-poetry install
-```
-
-3. Set up environment variables:
-```bash
-# Copy the example file for local development (non-secret values)
-cp .env.local.example .env.local
-
-# Edit .env.local with your local configuration
-# Note: .env.local is gitignored and contains non-secret local values
-# Use .env for secrets (also gitignored)
-```
-
-4. Set up LocalStack (for local development):
-```bash
-# Start LocalStack
-docker-compose up -d localstack
-
-# Wait for LocalStack to be healthy, then run setup script
-./resources/scripts/setup_localstack.sh
-
-# Copy the output values to your .env.local file
-```
-
-5. Set up the database:
-```bash
-# Start PostgreSQL
-docker-compose up -d postgres
-
-# Run migrations
+docker compose up -d postgres localstack
+make localstack-setup
 make migrate
 ```
 
-### Running Locally
-
-**API Server:**
+3. **Run the API server:**
 ```bash
 make run-api
-# or
-uvicorn entry.api.main:app --reload
-```
 
-**Worker:**
-```bash
+# In a seperate terminal, start the consumer
 make run-worker
-# or
-python -m entry.worker.main
 ```
 
-### Development
+4. **Visit the API documentation:**
+   - Swagger UI: http://localhost:8000/docs
+   - ReDoc: http://localhost:8000/redoc
 
-**Linting:**
-```bash
-make lint
-```
+5. **Try the example endpoints:**
+   - Create a user: `POST /users` with `{"email": "user@example.com", "name": "John Doe", "age": 30}`
+   - Create an invoice: `POST /invoices` with `{"user_id": "<user_id>", "amount": 100.00}`
+   - Request payment: `POST /invoices/{invoice_id}/request-payment`
 
-**Formatting:**
-```bash
-make format
-```
+> 📖 For detailed development instructions, Makefile commands, and workflows, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-**Type Checking:**
-```bash
-# Type checking is included in lint command
-make lint
-# or run mypy directly
-poetry run mypy .
-```
+### 🔧 SQLModel ORM Pattern
 
-**Testing:**
-```bash
-make test
-# or
-poetry run pytest
-```
+Repositories use **SQLModel ORM** for type-safe database operations. This provides:
 
-The test suite uses mocked dependencies for fast, isolated unit tests. All service tests mock repositories and transaction managers, ensuring tests run quickly without requiring a database connection.
+- **Type Safety**: ORM models with full type hints and IDE support
+- **Domain Separation**: Pure Pydantic domain models separate from ORM concerns
+- **Simplicity**: Minimal boilerplate with automatic mapping
+- **Query Building**: Use SQLModel's query API for type-safe queries
 
-### 🔧 Query Builder Pattern
-
-Repositories use **SQLAlchemy Core query builders** defined in `persistence/queries.py`. This provides:
-
-- **Type Safety**: Query builders return typed query objects (`Select`, `Insert`, `Update`, `Delete`)
-- **Composability**: Queries can be built programmatically and reused across repositories
-- **Performance**: Direct SQL generation without ORM overhead
-- **Flexibility**: Full control over SQL while maintaining type safety
-
-**Example query builder:**
-```python
-# In app/domain/user/persistence/queries.py
-def select_user_by_id() -> "Select":
-    """Create a SELECT query to get a user by ID."""
-    return select(
-        users_table.c.id,
-        users_table.c.email,
-        users_table.c.name,
-        users_table.c.age,
-        users_table.c.created_at,
-        users_table.c.updated_at,
-    ).where(users_table.c.id == bindparam("user_id"))
-```
-
-**Usage in repository:**
+**Example ORM model and repository:**
 ```python
 # In app/domain/user/repo/sql.py
-async def get_by_id(self, user_id: UUID) -> User | None:
-    stmt = select_user_by_id()
-    result = await self._conn.execute(stmt, {"user_id": str(user_id)})
-    row = result.first()
-    return User(**row._mapping) if row else None
+class UserORM(SQLModel, table=True):
+    """User ORM model for database persistence."""
+    __tablename__ = "users"
+    id: UUID = Field(primary_key=True)
+    email: str = Field(unique=True, index=True)
+    name: str
+    age: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+class UserRepository(BaseUserRepository[SQLContext]):
+    @staticmethod
+    def _orm_to_domain(orm_user: UserORM) -> User:
+        """Convert ORM model to domain model."""
+        return User(
+            id=orm_user.id,
+            email=orm_user.email,
+            name=orm_user.name,
+            age=orm_user.age,
+            created_at=orm_user.created_at,
+            updated_at=orm_user.updated_at,
+        )
+    
+    async def get_by_id(self, context: SQLContext, user_id: UUID) -> User | None:
+        orm_user = await context.session.get(UserORM, user_id)
+        return self._orm_to_domain(orm_user) if orm_user else None
 ```
 
 ## 💼 Example Business Case
@@ -299,17 +254,14 @@ This example showcases how to structure a multi-domain system with event-driven 
 
 ## 🗄️ Database Schema
 
-The template includes example domains (User and Invoice). Database migrations are managed using [migrate](https://github.com/golang-migrate/migrate) and located in `resources/db/migrations/`.
-
-To run migrations:
-```bash
-make migrate
-```
+The template includes example domains (User and Invoice). Database migrations are managed using [golang-migrate](https://github.com/golang-migrate/migrate) and located in `resources/db/migrations/`.
 
 The schema includes:
 
 - **Users table**: Stores user information with email uniqueness
 - **Invoices table**: Stores invoices linked to users with status tracking
+
+> 📖 For migration commands and database setup, see [DEVELOPMENT.md](DEVELOPMENT.md#-database-migrations).
 
 ## 📨 Event System
 
@@ -349,21 +301,12 @@ await invoice_payment_requested_handler.handle(event)
 
 ## 🐳 Docker
 
-The API and worker **share the same Docker image**, with different entrypoints:
+The project uses Docker for both development and production:
 
-```bash
-# Build the shared image
-docker build -f resources/docker/app.Dockerfile -t app:latest .
+- **Workspace Container**: Consistent development environment with all tools pre-installed
+- **Production Images**: Optimized images for API, worker, and migrations
 
-# Run API server (default)
-docker run -p 8000:8000 app:latest
-
-# Run worker (override CMD)
-docker run app:latest python -m entry.worker.main
-
-# Or use docker-compose (create docker-compose.yml as needed)
-docker-compose up
-```
+> 📖 For Docker setup and usage, see [DEVELOPMENT.md](DEVELOPMENT.md#-docker).
 
 ## ☁️ Infrastructure
 
@@ -395,8 +338,11 @@ Contributions are welcome! Please follow these guidelines:
 2. ✅ Maintain type hints throughout (mypy must pass)
 3. ✅ Write tests for new features with mocked dependencies
 4. ✅ Run linting and type checking before committing (`make lint`)
-5. ✅ Follow the Makefile commands for common tasks
-6. ✅ Update documentation for any architectural changes
+5. ✅ Use the workspace container for all development tasks
+6. ✅ Follow the Makefile commands for common tasks
+7. ✅ Update documentation for any architectural changes
+
+> 📖 For detailed development workflow and guidelines, see [DEVELOPMENT.md](DEVELOPMENT.md#-contributing).
 
 ## 📝 License
 

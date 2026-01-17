@@ -29,11 +29,12 @@ async def test_validate_create_invoice_request_success(
     )
 
     mock_user_repository.get_by_id.return_value = existing_user
+    context = None  # Mock context
 
     # Should not raise
-    await validate_create_invoice_request(user_id, mock_user_repository)
+    await validate_create_invoice_request(user_id=user_id, user_repository=mock_user_repository, context=context)
 
-    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+    mock_user_repository.get_by_id.assert_called_once_with(context, user_id)
 
 
 @pytest.mark.asyncio
@@ -44,10 +45,11 @@ async def test_validate_create_invoice_request_user_not_found(
     user_id = uuid4()
 
     mock_user_repository.get_by_id.return_value = None
+    context = None  # Mock context
 
     with pytest.raises(NotFoundError) as exc_info:
-        await validate_create_invoice_request(user_id, mock_user_repository)
+        await validate_create_invoice_request(user_id=user_id, user_repository=mock_user_repository, context=context)
 
     assert exc_info.value.entity_type == "User"
     assert exc_info.value.identifier == str(user_id)
-    mock_user_repository.get_by_id.assert_called_once_with(user_id)
+    mock_user_repository.get_by_id.assert_called_once_with(context, user_id)
