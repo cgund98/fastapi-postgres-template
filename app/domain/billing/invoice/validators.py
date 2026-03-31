@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from app.domain.exceptions import NotFoundError
-from app.domain.user.repo.base import UserRepository
+from app.domain.user.repo import UserRepository
 
 
 async def validate_create_invoice_request[TContext](

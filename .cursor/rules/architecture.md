@@ -25,7 +25,7 @@ This project follows a **3-tier architecture** with Domain-Driven Design princip
 - Repositories are stateless - context is passed per method call
 
 ### 3. Transaction Management
-- Use `TransactionManager` from `app.infrastructure.db.transaction` (generic on context type)
+- Use `TransactionManager` from `app.adapters.db.transaction` (generic on context type)
 - Wrap all database operations in `async with transaction_manager.transaction() as context:`
 - The transaction manager yields a context object (e.g., `SQLContext`) that provides database session access
 - Pass the context to all repository method calls
@@ -33,7 +33,7 @@ This project follows a **3-tier architecture** with Domain-Driven Design princip
 - Context is automatically committed on success, rolled back on error
 
 ### 4. Domain Events
-- Events inherit from `BaseEvent` in `app.infrastructure.messaging.base`
+- Events inherit from `BaseEvent` in `app.adapters.events.base`
 - Events are published via `EventPublisher` after domain operations
 - Events are consumed by workers from SQS queues
 - Event handlers are in `app/domain/{domain}/consumers/`
@@ -57,7 +57,7 @@ This project follows a **3-tier architecture** with Domain-Driven Design princip
 
 ### Error Handling
 - Domain exceptions in `app.domain.exceptions`
-- Infrastructure exceptions in `app.infrastructure.db.exceptions`
+- Infrastructure exceptions in `app.adapters.db.exceptions`
 - Presentation exceptions in `app.presentation.exceptions`
 - Use specific exception types (e.g., `NotFoundError`, `ValidationError`)
 

@@ -7,9 +7,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.adapters.db.exceptions import NoFieldsToUpdateError
 from app.domain.user.model import User
 from app.domain.user.service import UserService
-from app.infrastructure.db.exceptions import NoFieldsToUpdateError
 
 
 @pytest.mark.asyncio
@@ -62,10 +62,10 @@ async def test_create_user(
 
         # Verify event was published
         mock_event_publisher.publish.assert_called_once()
-        published_event = mock_event_publisher.publish.call_args[0][0]
-        assert published_event.aggregate_id == str(user.id)
-        assert published_event.email == email
-        assert published_event.name == name
+        publish_args = mock_event_publisher.publish.call_args[0][0]
+        assert publish_args.payload.aggregate_id() == str(user.id)
+        assert publish_args.payload.email == email
+        assert publish_args.payload.name == name
 
 
 @pytest.mark.asyncio

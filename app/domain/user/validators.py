@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.domain.exceptions import NotFoundError, ValidationError
-from app.domain.user.repo.base import UserRepository
+from app.domain.user.repo import UserRepository
 
 if TYPE_CHECKING:
     from app.domain.user.model import User
@@ -45,7 +45,7 @@ async def validate_email_not_duplicate[TContext](
     Raises:
         DuplicateError: If email already exists for another user
     """
-    from app.infrastructure.db.exceptions import DuplicateError
+    from app.adapters.db.exceptions import DuplicateError
 
     if email is None:
         return
@@ -71,7 +71,7 @@ async def validate_create_user_request[TContext](
         DuplicateError: If email already exists
         ValidationError: If name is empty or whitespace-only
     """
-    from app.infrastructure.db.exceptions import DuplicateError
+    from app.adapters.db.exceptions import DuplicateError
 
     # Validate name
     if not name or not name.strip():

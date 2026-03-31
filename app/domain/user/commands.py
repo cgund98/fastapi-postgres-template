@@ -6,7 +6,7 @@ from uuid import UUID
 
 
 @dataclass
-class CreateUser:
+class CreateUserCommand:
     """Command for creating a new user."""
 
     id: UUID
@@ -18,7 +18,7 @@ class CreateUser:
 
 
 @dataclass(frozen=True)
-class UserUpdate:
+class UserUpdateCommand:
     """Command for updating a user with sparse patching support."""
 
     email: str | None = None

@@ -1,6 +1,6 @@
 """Domain-level exceptions."""
 
-from app.infrastructure.db.exceptions import NotFoundError, RepositoryError
+from app.adapters.db.exceptions import NotFoundError, RepositoryError
 
 
 class DomainError(Exception):

@@ -1,1 +1,0 @@
-"""Invoice repository package."""

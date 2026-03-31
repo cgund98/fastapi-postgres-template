@@ -3,9 +3,6 @@
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.domain.billing.invoice.events.constants import InvoiceEventType
-from app.domain.user.events.constants import UserEventType
-
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -28,7 +25,6 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     aws_endpoint_url: str | None = None  # For local testing with LocalStack
     use_localstack: bool = False
-    default_event_topic_arn: str | None = None
 
     @model_validator(mode="after")
     def detect_localstack(self) -> "Settings":
@@ -39,27 +35,8 @@ class Settings(BaseSettings):
         return self
 
     # Event queue URLs - one per event type
-    event_queue_url_user_created: str | None = None
-    event_queue_url_user_updated: str | None = None
-    event_queue_url_invoice_created: str | None = None
-    event_queue_url_invoice_payment_requested: str | None = None
-    event_queue_url_invoice_paid: str | None = None
-
-    @property
-    def event_queue_urls(self) -> dict[str, str]:
-        """Get event queue URLs as a dictionary mapped by event type."""
-        queue_urls: dict[str, str] = {}
-        if self.event_queue_url_user_created:
-            queue_urls[UserEventType.CREATED] = self.event_queue_url_user_created
-        if self.event_queue_url_user_updated:
-            queue_urls[UserEventType.UPDATED] = self.event_queue_url_user_updated
-        if self.event_queue_url_invoice_created:
-            queue_urls[InvoiceEventType.CREATED] = self.event_queue_url_invoice_created
-        if self.event_queue_url_invoice_payment_requested:
-            queue_urls[InvoiceEventType.PAYMENT_REQUESTED] = self.event_queue_url_invoice_payment_requested
-        if self.event_queue_url_invoice_paid:
-            queue_urls[InvoiceEventType.PAID] = self.event_queue_url_invoice_paid
-        return queue_urls
+    event_topic_arn: str = ""
+    event_queue_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=[".env.local", ".env"],  # Load .env.local first, then .env (later files override earlier ones)

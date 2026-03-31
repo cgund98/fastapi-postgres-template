@@ -131,14 +131,12 @@ localstack-logs: ## View LocalStack logs
 	docker compose logs -f localstack
 
 # Local IDE support (run on host machine)
-local-venv: ## Export requirements and create local .venv.local for IDE support
+local-venv: ## Export requirements and create local .venv for IDE support
 	@echo "Exporting requirements from workspace container..."
 	@docker compose exec $(SERVICE) poetry export -f requirements.txt --output requirements.local.txt --without-hashes
-	@echo "Removing existing .venv.local if it exists..."
-	@rm -rf .venv.local
 	@echo "Creating local virtual environment..."
-	@python3 -m venv .venv.local
-	@echo "Installing requirements in local .venv.local..."
-	@.venv.local/bin/pip install --upgrade pip
-	@.venv.local/bin/pip install -r requirements.local.txt
-	@echo "Local .venv.local created successfully! Activate with: source .venv.local/bin/activate"
+	@python3 -m venv .venv
+	@echo "Installing requirements in local .venv..."
+	@.venv/bin/pip install --upgrade pip
+	@.venv/bin/pip install -r requirements.local.txt
+	@echo "Local .venv created successfully! Activate with: source .venv/bin/activate"

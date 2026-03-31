@@ -5,20 +5,20 @@ from uuid import UUID
 
 from uuid_extensions import uuid7
 
+from app.adapters.db.exceptions import NoFieldsToUpdateError
+from app.adapters.db.transaction import TransactionManager
 from app.domain.billing.invoice.service import InvoiceService
-from app.domain.user.commands import CreateUser, UserUpdate
+from app.domain.events.publisher import EventPublisher, PublishArgs
+from app.domain.events.registry.user.v1.events import UserCreatedEvent, UserUpdatedEvent
+from app.domain.user.commands import CreateUserCommand, UserUpdateCommand
 from app.domain.user.diff import generate_user_changes
-from app.domain.user.events.user_events import UserCreatedEvent, UserUpdatedEvent
 from app.domain.user.model import User
-from app.domain.user.repo.base import UserRepository
+from app.domain.user.repo import UserRepository
 from app.domain.user.validators import (
     validate_create_user_request,
     validate_delete_user_request,
     validate_patch_user_request,
 )
-from app.infrastructure.db.exceptions import NoFieldsToUpdateError
-from app.infrastructure.db.transaction import TransactionManager
-from app.infrastructure.messaging.publisher import EventPublisher
 
 
 class UserService[TContext]:
@@ -46,12 +46,13 @@ class UserService[TContext]:
             # Generate V7 UUID (timestamp-centric) and timestamps
             user_id = uuid7()
             now = datetime.now()
-            create_user = CreateUser(id=user_id, email=email, name=name, age=age, created_at=now, updated_at=now)
+            create_user = CreateUserCommand(id=user_id, email=email, name=name, age=age, created_at=now, updated_at=now)
             user = await self._repo.create(context, create_user)
 
             # Publish event (after commit)
-            event = UserCreatedEvent(aggregate_id=str(user.id), email=user.email, name=user.name)
-            await self._event_publisher.publish(event)
+            event = UserCreatedEvent(user_id=user.id, email=user.email, name=user.name)
+            publish_args = PublishArgs(payload=event, source="user.service.create_user")
+            await self._event_publisher.publish(publish_args)
 
             return user
 
@@ -75,7 +76,7 @@ class UserService[TContext]:
             )
 
             # Build UserUpdate from provided fields
-            user_update = UserUpdate(
+            user_update = UserUpdateCommand(
                 email=email,
                 name=name,
                 age=age,
@@ -92,8 +93,9 @@ class UserService[TContext]:
 
             # Publish event if there were changes
             if changes:
-                event = UserUpdatedEvent(aggregate_id=str(updated_user.id), changes=changes)
-                await self._event_publisher.publish(event)
+                event = UserUpdatedEvent(user_id=updated_user.id, changes=changes)
+                publish_args = PublishArgs(payload=event, source="user.service.patch_user")
+                await self._event_publisher.publish(publish_args)
 
             return updated_user
 

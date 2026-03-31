@@ -2,20 +2,22 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, Request, status
+import boto3
+from fastapi import Depends, FastAPI, status
 from fastapi.responses import JSONResponse
 
+from app.adapters.aws.client import get_boto3_client_kwargs
+from app.adapters.events.publisher.sns import SNSPublisher
+from app.adapters.sql.pool import AsyncpgPool
+from app.adapters.sql.transaction import SQLTransactionManager
 from app.config.settings import get_settings
-from app.domain.exceptions import BusinessRuleError, DomainError, ValidationError
-from app.infrastructure.db.exceptions import DatabaseError, DuplicateError, NotFoundError, RepositoryError
-from app.infrastructure.sql.sqlalchemy_pool import SQLAlchemyPool
-from app.infrastructure.sql.transaction import SQLTransactionManager
 from app.observability.logging import get_logger, setup_logging
-from app.presentation.billing import routes as billing_routes
-from app.presentation.container import AppContainer, get_container
-from app.presentation.exceptions import handle_domain_exceptions
-from app.presentation.user import routes as user_routes
+from app.presentation.fastapi.billing import routes as billing_routes
+from app.presentation.fastapi.container import AppContainer, get_container
+from app.presentation.fastapi.exceptions import register_exception_handlers
+from app.presentation.fastapi.user import routes as user_routes
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -29,9 +31,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting API server", environment=settings.environment)
 
     # Initialize application container with lifecycle dependencies
-    db_pool = SQLAlchemyPool(settings)
+    db_pool = AsyncpgPool(settings)
+    await db_pool.connect()
     transaction_manager = SQLTransactionManager(db_pool)
-    container = AppContainer(db_pool=db_pool, transaction_manager=transaction_manager)
+
+    boto3_args = get_boto3_client_kwargs(settings)
+    sns_client = boto3.client("sns", **boto3_args)
+    event_publisher = SNSPublisher(sns_client, topic_arn=settings.event_topic_arn)
+
+    container = AppContainer(db_pool=db_pool, transaction_manager=transaction_manager, event_publisher=event_publisher)
 
     # Attach container to app state
     app.state.container = container
@@ -53,13 +61,7 @@ app = FastAPI(
 )
 
 # Register exception handlers
-app.add_exception_handler(ValidationError, handle_domain_exceptions)
-app.add_exception_handler(BusinessRuleError, handle_domain_exceptions)
-app.add_exception_handler(DomainError, handle_domain_exceptions)
-app.add_exception_handler(NotFoundError, handle_domain_exceptions)
-app.add_exception_handler(DuplicateError, handle_domain_exceptions)
-app.add_exception_handler(DatabaseError, handle_domain_exceptions)
-app.add_exception_handler(RepositoryError, handle_domain_exceptions)
+register_exception_handlers(app)
 
 # Include routers
 app.include_router(user_routes.router)
@@ -67,19 +69,13 @@ app.include_router(billing_routes.router)
 
 
 @app.get("/health")
-async def health_check(request: Request) -> JSONResponse:
+async def health_check(container: Annotated[AppContainer, Depends(get_container)]) -> JSONResponse:
     """Health check endpoint that tests database connectivity."""
-    from sqlalchemy import text
-
     try:
-        # Get the database pool from the container
-        container = get_container(request.app)
         db_pool = container.db_pool
 
-        # Test database connection with a simple query
-        async with db_pool.get_session() as session:
-            result = await session.execute(text("SELECT 1"))
-            result.scalar()
+        async with db_pool.get_connection() as conn:
+            await conn.fetchval("SELECT 1")
 
         return JSONResponse(
             content={"status": "healthy"},

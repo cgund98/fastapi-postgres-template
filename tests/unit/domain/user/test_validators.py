@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.adapters.db.exceptions import DuplicateError
 from app.domain.exceptions import NotFoundError, ValidationError
 from app.domain.user.model import User
 from app.domain.user.validators import (
@@ -13,7 +14,6 @@ from app.domain.user.validators import (
     validate_delete_user_request,
     validate_patch_user_request,
 )
-from app.infrastructure.db.exceptions import DuplicateError
 
 
 @pytest.mark.asyncio
