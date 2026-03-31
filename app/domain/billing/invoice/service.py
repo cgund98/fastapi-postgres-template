@@ -6,19 +6,19 @@ from uuid import UUID
 
 from uuid_extensions import uuid7str
 
-from app.domain.billing.invoice.commands import CreateInvoice
-from app.domain.billing.invoice.events.invoice_events import (
+from app.adapters.db.transaction import TransactionManager
+from app.domain.billing.invoice.commands import CreateInvoiceCommand
+from app.domain.billing.invoice.model import Invoice, InvoiceStatus
+from app.domain.billing.invoice.repo import InvoiceRepository
+from app.domain.billing.invoice.validators import validate_create_invoice_request
+from app.domain.events.publisher import EventPublisher, PublishArgs
+from app.domain.events.registry.billing.v1.invoice import (
     InvoiceCreatedEvent,
     InvoicePaidEvent,
     InvoicePaymentRequestedEvent,
 )
-from app.domain.billing.invoice.model import Invoice, InvoiceStatus
-from app.domain.billing.invoice.repo.base import InvoiceRepository
-from app.domain.billing.invoice.validators import validate_create_invoice_request
 from app.domain.exceptions import BusinessRuleError, NotFoundError
-from app.domain.user.repo.base import UserRepository
-from app.infrastructure.db.transaction import TransactionManager
-from app.infrastructure.messaging.publisher import EventPublisher
+from app.domain.user.repo import UserRepository
 
 
 class InvoiceService[TContext]:
@@ -46,22 +46,22 @@ class InvoiceService[TContext]:
             # Generate V7 UUID (timestamp-centric) and timestamps
             invoice_id = uuid7str()
             now = datetime.now()
-            create_invoice = CreateInvoice(
+            create_invoice = CreateInvoiceCommand(
                 id=invoice_id, user_id=user_id, amount=amount, created_at=now, updated_at=now
             )
             invoice = await self._repo.create(context, create_invoice)
 
             # Publish event (after commit)
-            created_event = InvoiceCreatedEvent(
-                aggregate_id=str(invoice.id), user_id=str(invoice.user_id), amount=invoice.amount
-            )
-            await self._event_publisher.publish(created_event)
+            created_event = InvoiceCreatedEvent(invoice_id=invoice.id, user_id=invoice.user_id, amount=invoice.amount)
+            publish_args = PublishArgs(payload=created_event, source="invoice.service.create_invoice")
+            await self._event_publisher.publish(publish_args)
 
         # Emit payment requested event after transaction is committed
         # This is just to simulate an external event to the system.
         # You wouldn't normally do this in a real application.
-        payment_requested_event = InvoicePaymentRequestedEvent(aggregate_id=str(invoice.id))
-        await self._event_publisher.publish(payment_requested_event)
+        payment_requested_event = InvoicePaymentRequestedEvent(invoice_id=invoice.id)
+        publish_args = PublishArgs(payload=payment_requested_event, source="invoice.service.request_payment")
+        await self._event_publisher.publish(publish_args)
 
         return invoice
 
@@ -94,12 +94,13 @@ class InvoiceService[TContext]:
             updated_invoice = await self._repo.update(context, updated_invoice)
 
             # Publish event (after commit)
-            event = InvoicePaidEvent(
-                aggregate_id=str(updated_invoice.id),
-                user_id=str(updated_invoice.user_id),
+            paid_event = InvoicePaidEvent(
+                invoice_id=updated_invoice.id,
+                user_id=updated_invoice.user_id,
                 amount=updated_invoice.amount,
             )
-            await self._event_publisher.publish(event)
+            publish_args = PublishArgs(payload=paid_event, source="invoice.service.mark_invoice_paid")
+            await self._event_publisher.publish(publish_args)
 
             return updated_invoice
 
@@ -116,8 +117,9 @@ class InvoiceService[TContext]:
                 raise NotFoundError(entity_type="Invoice", identifier=str(invoice_id))
 
             # Publish payment requested event (worker will process it)
-            event = InvoicePaymentRequestedEvent(aggregate_id=str(invoice_id))
-            await self._event_publisher.publish(event)
+            payment_requested_event = InvoicePaymentRequestedEvent(invoice_id=invoice.id)
+            publish_args = PublishArgs(payload=payment_requested_event, source="invoice.service.request_payment")
+            await self._event_publisher.publish(publish_args)
 
             return invoice
 

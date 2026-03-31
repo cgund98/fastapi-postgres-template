@@ -7,19 +7,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.adapters.billing.invoice.repo import InvoiceRepository
+from app.adapters.db.transaction import TransactionManager
+from app.adapters.user.repo import UserRepository
 from app.config.settings import Settings
-from app.domain.billing.invoice.consumers.invoice_events import (
+from app.domain.billing.invoice.handlers.invoice_events import (
     InvoiceCreatedEventHandler,
     InvoicePaidEventHandler,
 )
-from app.domain.billing.invoice.consumers.payment_requested import InvoicePaymentRequestedHandler
-from app.domain.billing.invoice.repo.sql import InvoiceRepository
+from app.domain.billing.invoice.handlers.payment_requested import InvoicePaymentRequestedHandler
 from app.domain.billing.invoice.service import InvoiceService
-from app.domain.user.consumers.user_events import UserCreatedEventHandler, UserUpdatedEventHandler
-from app.domain.user.repo.sql import UserRepository
+from app.domain.events.publisher import EventPublisher
+from app.domain.user.handlers import UserCreatedEventHandler, UserUpdatedEventHandler
 from app.domain.user.service import UserService
-from app.infrastructure.db.transaction import TransactionManager
-from app.infrastructure.messaging.publisher import EventPublisher
 
 
 @pytest.fixture

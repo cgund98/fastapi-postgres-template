@@ -1,115 +1,83 @@
-# FastAPI PostgreSQL Template - Cursor Rules
+# Architecture Rules
 
-## Architecture Overview
+## Layers
 
-This project follows a **3-tier architecture** with Domain-Driven Design principles:
+- **Presentation** (`app/presentation/fastapi/`): FastAPI routes, Pydantic schemas, dependency injection
+- **Domain** (`app/domain/`): Business logic, models, services, abstract repos, validators, event payloads, handlers
+- **Adapters** (`app/adapters/`): Concrete implementations -- asyncpg repos, SNS publisher, SQS consumer, AWS clients
 
-- **Presentation Layer** (`app/presentation/`): FastAPI routes, Pydantic schemas, dependency injection
-- **Domain Layer** (`app/domain/`): Business logic, domain models, services, repositories, events
-- **Infrastructure Layer** (`app/infrastructure/`): Database, messaging, external services
+## Domain structure
 
-## Key Patterns
+Each domain follows this layout:
 
-### 1. Domain Services
-- Services contain business logic and orchestrate repositories
-- All database operations happen within transaction contexts (`async with transaction_manager.transaction()`)
-- Services publish domain events after state changes
-- Services can call other domain services for cross-domain operations
+```
+app/domain/{name}/
+  model.py        # Frozen Pydantic domain model
+  commands.py     # Dataclasses for create/update inputs
+  service.py      # Business logic (generic on TContext)
+  repo.py         # Abstract repository (ABC, generic on TContext)
+  validators.py   # Business rule checks
+  handlers.py     # Event handlers for incoming events
+```
 
-### 2. Repository Pattern
-- Repositories abstract data access (`app/domain/{domain}/repo/`)
-- Use SQLModel ORM for database operations
-- ORM models are defined in `repo/sql.py` files alongside repository implementations
-- Repositories are generic on context type (`TContext`) for type-safe transaction management
-- Repositories convert between ORM models and domain models
-- Repositories are stateless - context is passed per method call
+Adapter repos live separately:
 
-### 3. Transaction Management
-- Use `TransactionManager` from `app.infrastructure.db.transaction` (generic on context type)
-- Wrap all database operations in `async with transaction_manager.transaction() as context:`
-- The transaction manager yields a context object (e.g., `SQLContext`) that provides database session access
-- Pass the context to all repository method calls
-- Transactions are application-level, not database-level
-- Context is automatically committed on success, rolled back on error
+```
+app/adapters/{name}/repo.py   # SQL implementation using raw asyncpg
+```
 
-### 4. Domain Events
-- Events inherit from `BaseEvent` in `app.infrastructure.messaging.base`
-- Events are published via `EventPublisher` after domain operations
-- Events are consumed by workers from SQS queues
-- Event handlers are in `app/domain/{domain}/consumers/`
+## Patterns
 
-### 5. Dependency Injection
-- FastAPI dependencies in `app/presentation/{domain}/deps.py` and `app/presentation/deps.py`
-- Use `Annotated[Type, Depends(...)]` for dependency injection (modern FastAPI pattern)
-- Application-scoped dependencies (database pool, transaction manager) stored in `AppContainer` on app state
-- Services are created via factory functions
-- All dependencies are injected via constructors
-- Repositories are stateless and created per request
+### Repositories
+- Domain defines abstract interface (`app/domain/{name}/repo.py`)
+- Adapter provides concrete implementation with raw asyncpg SQL (`app/adapters/{name}/repo.py`)
+- Repos are stateless -- context is passed per method call
+- Use `$1`, `$2` positional params. For optional filters, prefer `COALESCE` or branching over dynamic query building.
 
-## Code Conventions
+### Transactions
+- Services wrap operations: `async with self._tx_manager.transaction() as context:`
+- Context holds the asyncpg connection
+- Pass context to every repository method
+- Auto-commits on success, rolls back on exception
 
-### Type Hints
-- Use comprehensive type hints throughout (mypy strict mode)
-- Use `UUID` from `uuid` module for IDs
-- Use optional fields (`str | None = None`) for PATCH operations - no UNSET sentinels
-- Domain models use Pydantic BaseModel (pure domain models, separate from ORM)
-- Services and repositories are generic on context type: `Service[TContext]`, `Repository[TContext]`
+### Events
+- Payloads are `Payload` subclasses in `app/domain/events/registry/{domain}/v1/`
+- Services publish via `EventPublisher` using `PublishArgs(payload=..., source=...)`
+- SNS publisher wraps in CloudEvents `Envelope` with `event_type` message attribute
+- SQS consumer parses `Envelope`, `EventRouter` dispatches to registered `EventHandler`
+- Handlers receive `(event: TPayload, envelope: Envelope)`
 
-### Error Handling
+### Dependency injection
+- `app/presentation/fastapi/deps.py` creates repos, services, transaction managers
+- `AppContainer` on app state holds long-lived objects (db pool, transaction manager)
+- Use `Annotated[Type, Depends(...)]`
+
+## Conventions
+
+- Type hints everywhere (mypy strict)
+- IDs are `UUID`, never strings
+- Optional PATCH fields: `str | None = None`
+- Domain models are frozen Pydantic `BaseModel`
+- Services and repos are generic on `TContext`
 - Domain exceptions in `app.domain.exceptions`
-- Infrastructure exceptions in `app.infrastructure.db.exceptions`
-- Presentation exceptions in `app.presentation.exceptions`
-- Use specific exception types (e.g., `NotFoundError`, `ValidationError`)
+- DB exceptions in `app.adapters.db.exceptions`
 
-### Testing
-- Unit tests in `tests/unit/domain/`
-- Mock all external dependencies (repositories, transaction managers, event publishers)
-- Tests should be fast and isolated (no database required)
+## Tech stack
 
-### File Organization
-- Each domain has its own directory: `app/domain/{domain}/`
-- Domain structure: `model.py`, `commands.py`, `service.py`, `repo/`, `events/`, `consumers/`, `validators.py`, `diff.py`
-  - `repo/sql.py` contains both ORM models and repository implementation
-- Presentation structure: `routes.py`, `schema.py`, `deps.py`
-- Infrastructure: `app/infrastructure/sql/` for SQL-specific infrastructure
-- Application container: `app/presentation/container.py` for lifecycle management
+- Python 3.12, FastAPI, asyncpg (no ORM), PostgreSQL
+- Poetry, SNS/SQS, structlog, ruff, mypy, pytest
 
-## Technology Stack
+## Adding features
 
-- **Python 3.12+** with async/await
-- **FastAPI** for API framework
-- **SQLModel** (SQLAlchemy ORM) for type-safe database operations
-- **Poetry** for dependency management
-- **PostgreSQL** for database
-- **SNS/SQS** for event-driven messaging
-- **structlog** for structured logging
-
-## Important Notes
-
-- **SQLModel ORM**: We use SQLModel for type-safe ORM operations with domain/ORM separation
-- **Async Everything**: All I/O operations are async
-- **Type Safety**: All code must pass mypy strict type checking with generic context types
-- **Transaction Boundaries**: All database operations must be within transaction contexts with context objects
-- **Event-Driven**: Use domain events for cross-domain communication, not direct service calls
-- **Repository Abstraction**: Never access database directly from services, always use repositories
-- **Context Pattern**: Repositories and services are generic on context type for type-safe session passing
-- **Lifecycle Management**: Application-scoped dependencies managed via AppContainer on app state
-- **Health Checks**: `/health` endpoint tests database connectivity
-
-## When Adding New Features
-
-1. Create domain model in `app/domain/{domain}/model.py` (pure Pydantic)
-2. Create command objects in `app/domain/{domain}/commands.py` (CreateUser, UserUpdate)
-3. Create repository interface in `app/domain/{domain}/repo/base.py` (generic on TContext)
-4. Implement repository in `app/domain/{domain}/repo/sql.py`:
-   - Define ORM model at top of file (e.g., `UserORM`)
-   - Implement repository with `_orm_to_domain` mapping method
-5. Create service in `app/domain/{domain}/service.py` (generic on TContext)
-6. Create validators in `app/domain/{domain}/validators.py`
-7. Create diff utilities in `app/domain/{domain}/diff.py` (for change tracking)
-8. Create events in `app/domain/{domain}/events/`
-9. Create consumers in `app/domain/{domain}/consumers/`
-10. Create API routes in `app/presentation/{domain}/routes.py`
-11. Create schemas in `app/presentation/{domain}/schema.py`
-12. Create dependencies in `app/presentation/{domain}/deps.py` (use Annotated[Type, Depends(...)])
-13. Write tests in `tests/unit/domain/{domain}/`
+1. Domain model in `app/domain/{name}/model.py`
+2. Commands in `app/domain/{name}/commands.py`
+3. Abstract repo in `app/domain/{name}/repo.py`
+4. Concrete repo in `app/adapters/{name}/repo.py` (raw asyncpg SQL)
+5. Service in `app/domain/{name}/service.py`
+6. Validators in `app/domain/{name}/validators.py`
+7. Event payloads in `app/domain/events/registry/{name}/v1/`
+8. Handlers in `app/domain/{name}/handlers.py`
+9. Routes in `app/presentation/fastapi/{name}/routes.py`
+10. Schemas in `app/presentation/fastapi/{name}/schema.py`
+11. Deps in `app/presentation/fastapi/{name}/deps.py`
+12. Tests in `tests/unit/domain/{name}/`

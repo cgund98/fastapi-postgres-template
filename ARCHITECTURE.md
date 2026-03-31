@@ -1,418 +1,125 @@
-# Architecture Documentation
+# Architecture
 
-This document provides detailed information about the application architecture, design patterns, and conventions used in this codebase.
+## Layers
 
-## Table of Contents
-
-- [Architecture Overview](#architecture-overview)
-- [Layer Responsibilities](#layer-responsibilities)
-- [Design Patterns](#design-patterns)
-- [Data Flow](#data-flow)
-- [Conventions](#conventions)
-- [Adding New Domains](#adding-new-domains)
-
-## Architecture Overview
-
-This application follows a **3-Tier Architecture** with **Domain-Driven Design** principles:
+The app has three layers. Each layer only depends on the one below it.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              Presentation Layer                          │
-│  (FastAPI Routes, Schemas, Dependency Injection)       │
-└──────────────────┬──────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────┐
-│                 Domain Layer                            │
-│  (Services, Models, Repositories, Events, Validators)  │
-└──────────────────┬──────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────┐
-│            Infrastructure Layer                         │
-│  (Database, Messaging, External Services)              │
-└─────────────────────────────────────────────────────────┘
+Presentation  (app/presentation/)   -- HTTP routes, schemas, FastAPI deps
+     |
+  Domain      (app/domain/)         -- Services, models, repos, validators, events
+     |
+  Adapters    (app/adapters/)       -- Database, messaging, AWS clients
 ```
 
-## Layer Responsibilities
+### Presentation
 
-### Presentation Layer (`app/presentation/`)
+Handles HTTP concerns: request validation, response formatting, dependency wiring.
 
-**Purpose**: Handle HTTP requests/responses and API concerns.
+Lives in `app/presentation/fastapi/`. Each domain has its own folder with `routes.py`, `schema.py`, and optionally `deps.py`.
 
-**Components**:
-- **Routes** (`routes.py`): FastAPI route handlers
-- **Schemas** (`schema.py`): Pydantic models for request/response validation
-- **Dependencies** (`deps.py`): FastAPI dependency injection for services
+- **Routes** receive a validated Pydantic request, call a domain service, and return a Pydantic response. No business logic lives here.
+- **Schemas** define the shape of HTTP requests and responses. They map to and from domain models but are not the same thing (e.g. a response might omit internal fields).
+- **Deps** are FastAPI `Depends()` factories that wire together services, repos, and transaction managers for each request.
 
-**Responsibilities**:
-- Validate HTTP requests
-- Transform HTTP requests to domain operations
-- Transform domain models to HTTP responses
-- Handle HTTP errors and status codes
-- Pagination and filtering
+### Domain
 
-**Example**:
-```python
-# app/presentation/user/routes.py
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    request: UserCreateRequest,
-    service: UserService = Depends(get_user_service),
-) -> UserResponse:
-    """Create a new user."""
-    user = await service.create_user(
-        email=request.email,
-        name=request.name,
-        age=request.age,
-    )
-    return UserResponse.from_domain(user)
-```
+Contains all business logic. No knowledge of HTTP or specific databases.
 
-### Domain Layer (`app/domain/`)
-
-**Purpose**: Contain business logic and domain rules.
-
-**Components**:
-- **Models** (`model.py`): Domain entities with business logic (pure Pydantic models)
-- **Services** (`service.py`): Orchestrate business operations
-- **Repositories** (`repo/`): Data access interfaces and implementations
-  - **Base** (`repo/base.py`): Repository interface
-  - **SQL** (`repo/sql.py`): SQLModel ORM implementation with ORM models
-- **Commands** (`commands.py`): Command objects for operations (CreateUser, UserUpdate)
-- **Events** (`events/`): Domain events for event-driven communication
-- **Consumers** (`consumers/`): Event handlers
-- **Validators** (`validators.py`): Business rule validation
-
-**Responsibilities**:
-- Enforce business rules
-- Coordinate domain operations
-- Manage transactions
-- Publish domain events
-- Validate domain invariants
-
-**Example**:
-```python
-# app/domain/user/service.py
-class UserService[TContext]:
-    async def create_user(self, email: str, name: str, age: int | None = None) -> User:
-        """Create a new user."""
-        async with self._tx_manager.transaction() as context:
-            # Validate business rules
-            await validate_create_user_request(email, name, self._repo, context)
-            
-            # Create domain entity
-            user = await self._repo.create(context, create_user)
-            
-            # Publish domain event
-            event = UserCreatedEvent(...)
-            await self._event_publisher.publish(event)
-            
-            return user
-```
-
-### Infrastructure Layer (`app/infrastructure/`)
-
-**Purpose**: Provide technical capabilities and external integrations.
-
-**Components**:
-- **Database** (`db/`): Transaction management, connection pooling
-- **Messaging** (`messaging/`): Event publishing (SNS) and consumption (SQS)
-- **AWS** (`aws/`): AWS service clients
-- **SQL** (`sql/`): SQLAlchemy connection and transaction management
-
-**Responsibilities**:
-- Manage database connections
-- Handle transactions
-- Publish/consume events
-- Integrate with external services
-- Provide technical utilities
-
-## Design Patterns
-
-### 1. Repository Pattern
-
-**Purpose**: Abstract data access and enable easy testing.
-
-**Structure**:
-- **Base Interface** (`repo/base.py`): Defines repository contract (generic on context type)
-- **SQL Implementation** (`repo/sql.py`): Implements repository using SQLModel ORM
-  - Contains ORM models (e.g., `UserORM`) defined at the top of the file
-  - Uses `SQLContext` for database session access
-
-**Example**:
-```python
-# app/domain/user/repo/base.py
-class UserRepository[TContext](ABC, Generic[TContext]):
-    @abstractmethod
-    async def get_by_id(self, context: TContext, user_id: UUID) -> User | None: ...
-    
-    @abstractmethod
-    async def create(self, context: TContext, create_user: CreateUser) -> User: ...
-
-# app/domain/user/repo/sql.py
-class UserORM(SQLModel, table=True):
-    """User ORM model for database persistence."""
-    __tablename__ = "users"
-    id: UUID = Field(primary_key=True)
-    email: str = Field(unique=True, index=True)
-    # ... other fields
-
-class UserRepository(BaseUserRepository[SQLContext]):
-    async def get_by_id(self, context: SQLContext, user_id: UUID) -> User | None:
-        orm_user = await context.session.get(UserORM, user_id)
-        return self._orm_to_domain(orm_user) if orm_user else None
-```
-
-### 2. Unit of Work Pattern
-
-**Purpose**: Manage transactions at the application level.
-
-**Implementation**: `TransactionManager` wraps database operations in transactions and yields a context object.
-
-**Usage**:
-```python
-async with transaction_manager.transaction() as context:
-    # Context provides access to database session
-    # All operations here are in a single transaction
-    user = await repo.create(context, user)
-    invoice = await invoice_repo.create(context, invoice)
-    # If any operation fails, entire transaction rolls back
-    # Context is automatically committed on success, rolled back on error
-```
-
-### 3. Domain Events Pattern
-
-**Purpose**: Enable decoupled communication between domains.
-
-**Flow**:
-1. Domain operation completes
-2. Service publishes domain event
-3. Event is sent to SNS topic
-4. Worker consumes from SQS queue
-5. Event handler processes event
-
-**Example**:
-```python
-# In service
-event = UserCreatedEvent(aggregate_id=str(user.id), email=user.email)
-await self._event_publisher.publish(event)
-
-# In consumer
-@event_handler(UserCreatedEvent)
-async def handle_user_created(event: UserCreatedEvent) -> None:
-    # Process event asynchronously
-    pass
-```
-
-### 4. Dependency Injection
-
-**Purpose**: Enable loose coupling and testability.
-
-**Implementation**: FastAPI's dependency injection system.
-
-**Example**:
-```python
-# app/presentation/user/deps.py
-async def get_user_service(
-    repository: Annotated[UserRepository, Depends(get_user_repository)],
-    tx_manager: Annotated[SQLTransactionManager, Depends(get_transaction_manager)],
-    event_publisher: Annotated[EventPublisher, Depends(get_event_publisher)],
-    invoice_service: Annotated[InvoiceService, Depends(get_invoice_service)],
-) -> AsyncGenerator[UserService, None]:
-    """Create and return UserService with dependencies."""
-    yield UserService(repository, tx_manager, event_publisher, invoice_service)
-```
-
-### 5. SQLModel ORM Pattern
-
-**Purpose**: Use SQLModel for type-safe ORM operations with minimal boilerplate.
-
-**Structure**:
-- **ORM Models**: Defined in `repo/sql.py` files alongside repository implementations
-- **Domain Models**: Pure Pydantic models in `model.py` (separated from ORM concerns)
-- **Mapping**: Repositories convert between ORM and domain models
-
-**Example**:
-```python
-# app/domain/user/repo/sql.py
-class UserORM(SQLModel, table=True):
-    """User ORM model for database persistence."""
-    __tablename__ = "users"
-    id: UUID = Field(primary_key=True)
-    email: str = Field(unique=True, index=True)
-    name: str
-    # ... other fields
-
-class UserRepository(BaseUserRepository[SQLContext]):
-    @staticmethod
-    def _orm_to_domain(orm_user: UserORM) -> User:
-        """Convert ORM model to domain model."""
-        return User(
-            id=orm_user.id,
-            email=orm_user.email,
-            name=orm_user.name,
-            # ... map other fields
-        )
-    
-    async def get_by_id(self, context: SQLContext, user_id: UUID) -> User | None:
-        orm_user = await context.session.get(UserORM, user_id)
-        return self._orm_to_domain(orm_user) if orm_user else None
-```
-
-## Data Flow
-
-### Request Flow
+Each domain (e.g. `user`, `billing/invoice`) has:
 
 ```
-HTTP Request
-    ↓
-FastAPI Route Handler
-    ↓
-Dependency Injection (creates Service)
-    ↓
-Domain Service
-    ↓
-Transaction Manager (starts transaction)
-    ↓
-Repository (executes query)
-    ↓
-Database
-    ↓
-Repository (maps result to domain model)
-    ↓
-Service (publishes domain event)
-    ↓
-Event Publisher (sends to SNS)
-    ↓
-Service (returns domain model)
-    ↓
-Route Handler (maps to response schema)
-    ↓
-HTTP Response
+app/domain/{name}/
+  model.py          # Domain model (frozen Pydantic BaseModel)
+  commands.py       # Input objects for create/update operations
+  service.py        # Business logic, transaction management, event publishing
+  repo.py           # Abstract repository interface (ABC)
+  validators.py     # Business rule checks (uniqueness, existence, etc.)
+  handlers.py       # Event handlers for incoming events
 ```
 
-### Event Flow
+- **Services** are the entry point for all business operations. They open a transaction, validate inputs, call repos, publish events, and return domain models. They are generic on a context type (`TContext`) so they work with any database backend.
+- **Models** are frozen Pydantic objects that represent domain entities. They carry no database or framework concerns.
+- **Repos** define abstract interfaces (ABCs) for data access. The domain layer never knows how data is stored — it just calls methods like `get_by_id` and `create`.
+- **Validators** enforce business rules (e.g. "email must be unique") by querying repos within a transaction context. They raise domain exceptions on failure.
+- **Commands** are simple dataclasses that group the inputs for a create or update operation.
+- **Handlers** process incoming events from other domains or external systems.
 
-```
-Domain Operation Completes
-    ↓
-Service Publishes Event
-    ↓
-Event Publisher → SNS Topic
-    ↓
-SQS Queue (subscribed to topic)
-    ↓
-Worker Consumes Event
-    ↓
-Event Handler Processes Event
-    ↓
-Domain Operation (if needed)
-```
+### Adapters
+
+Concrete implementations of abstract interfaces defined in the domain layer. This is where framework and infrastructure details live.
+
+- `app/adapters/sql/` -- asyncpg connection pool, transaction manager, context object
+- `app/adapters/events/` -- SNS publisher, SQS consumer
+- `app/adapters/aws/` -- Boto3 client factory
+- `app/adapters/user/repo.py` -- SQL implementation of `UserRepository`
+- `app/adapters/billing/invoice/repo.py` -- SQL implementation of `InvoiceRepository`
+
+Adapter repos use raw asyncpg SQL with parameterized queries. There is no ORM — rows are fetched as `asyncpg.Record` and mapped to domain models in a `_row_to_domain` helper.
+
+## Key patterns
+
+### Repository
+
+Domain defines an abstract repo (`app/domain/user/repo.py`). The adapter provides a concrete implementation using raw asyncpg SQL (`app/adapters/user/repo.py`). Tests mock the abstract interface.
+
+### Transaction management
+
+Services wrap operations in `async with self._tx_manager.transaction() as context:`. The context object holds the asyncpg connection. If the block raises, the transaction rolls back. The context is passed to every repository method.
+
+### Events
+
+Events use a CloudEvents-compatible envelope format:
+
+1. Service creates a `Payload` subclass (e.g. `UserCreatedEvent`) and publishes it via `EventPublisher`
+2. `SNSPublisher` wraps it in an `Envelope` and sends to SNS with an `event_type` message attribute
+3. SNS delivers to SQS (filtered by event type)
+4. `SQSConsumer` reads from SQS, parses the `Envelope`, passes it to `EventRouter`
+5. `EventRouter` deserializes the payload and calls the registered `EventHandler`
+
+Event payloads live in `app/domain/events/registry/` organized by domain and version (e.g. `user/v1/events.py`).
+
+### Dependency injection
+
+FastAPI's `Depends()` wires everything together. `app/presentation/fastapi/deps.py` creates repositories, transaction managers, and services. The `AppContainer` (created in the lifespan) holds long-lived objects like the database pool.
 
 ## Conventions
 
-### Naming Conventions
+- **Models**: `User`, `Invoice` (PascalCase)
+- **Services**: `UserService`, `InvoiceService`
+- **Repos**: `UserRepository`, `InvoiceRepository`
+- **Events**: `UserCreatedEvent`, `InvoicePaidEvent`
+- **URLs**: kebab-case (`/invoices/{id}/request-payment`)
+- **Files**: snake_case (`user_service.py`)
+- **IDs**: Always `UUID`, never strings
+- **PATCH fields**: `str | None = None` (None means "not provided")
 
-- **Models**: PascalCase (e.g., `User`, `Invoice`)
-- **Services**: `{Domain}Service` (e.g., `UserService`)
-- **Repositories**: `{Domain}Repository` (e.g., `UserRepository`)
-- **Events**: `{Domain}{Action}Event` (e.g., `UserCreatedEvent`)
-- **Routes**: kebab-case URLs (e.g., `/users`, `/invoices/{id}/request-payment`)
-- **Files**: snake_case (e.g., `user_service.py`, `invoice_repo.py`)
+## Adding a new domain
 
-### Code Organization
-
-Each domain follows this structure:
-```
-app/domain/{domain}/
-├── model.py              # Domain models (pure Pydantic)
-├── commands.py           # Command objects (CreateUser, UserUpdate)
-├── service.py            # Domain service (generic on context type)
-├── validators.py         # Business rule validators
-├── diff.py               # Change tracking utilities
-├── repo/
-│   ├── base.py          # Repository interface (generic on context type)
-│   └── sql.py           # SQLModel ORM implementation + ORM models
-├── events/
-│   └── {domain}_events.py  # Event definitions
-└── consumers/
-    └── {domain}_events.py  # Event handlers
-```
-
-### Transaction Management
-
-- **Always** wrap database operations in transactions
-- Use `async with transaction_manager.transaction():`
-- Transactions are application-level, not database-level
-- If an exception occurs, the transaction automatically rolls back
-
-### Error Handling
-
-- Use specific exception types from `app.domain.exceptions`
-- Raise exceptions in domain layer
-- Catch and transform in presentation layer
-- Use appropriate HTTP status codes
-
-### Type Safety
-
-- All code must pass mypy strict type checking
-- Use type hints for all function parameters and return values
-- Use `UUID` for IDs, not strings
-- Use optional fields (`str | None = None`) for PATCH operations (no UNSET sentinels)
-- Services and repositories are generic on context type for type-safe transaction management
-
-## Adding New Domains
-
-When adding a new domain (e.g., `product`), follow these steps:
-
-1. **Create domain structure**:
-   ```bash
+1. Create the domain module:
+   ```
    app/domain/product/
-   ├── model.py
-   ├── commands.py
-   ├── service.py
-   ├── validators.py
-   ├── diff.py
-   ├── repo/
-   │   ├── base.py
-   │   └── sql.py  # Contains ORM model + repository implementation
-   ├── events/
-   └── consumers/
+     model.py, commands.py, service.py, repo.py, validators.py
    ```
 
-2. **Create database migration**:
+2. Create the adapter repo:
+   ```
+   app/adapters/product/repo.py
+   ```
+
+3. Create a database migration:
    ```bash
    make migrate-create NAME=create_products_table
    ```
 
-3. **Create presentation layer**:
-   ```bash
-   app/presentation/product/
-   ├── routes.py
-   ├── schema.py
-   └── deps.py
+4. Create the presentation layer:
+   ```
+   app/presentation/fastapi/product/
+     routes.py, schema.py, deps.py
    ```
 
-4. **Register routes** in `entry/api/main.py`
+5. Register routes in `entry/api/main.py`
 
-5. **Write tests** in `tests/unit/domain/product/`
+6. (Optional) Add event payloads in `app/domain/events/registry/product/v1/` and handlers in `app/domain/product/handlers.py`. Register them in the worker's `EventRouter`.
 
-6. **Update documentation**
-
-## Key Principles
-
-1. **Separation of Concerns**: Each layer has a single responsibility
-2. **Dependency Inversion**: Domain layer doesn't depend on infrastructure
-3. **Testability**: All dependencies are injected and mockable
-4. **Type Safety**: Comprehensive type hints throughout with generic context types
-5. **Event-Driven**: Use events for cross-domain communication
-6. **Transaction Safety**: All database operations are transactional with context objects
-7. **SQLModel ORM**: Use SQLModel for type-safe ORM operations with domain/ORM separation
-8. **Lifecycle Management**: Application-scoped dependencies managed via AppContainer
-
-## Related Documentation
-
-- [README.md](README.md) - Project overview and quick start
-- [DEVELOPMENT.md](DEVELOPMENT.md) - Development guide and workflows
-- [.cursorrules](.cursorrules) - Cursor-specific rules and conventions
+7. Write tests in `tests/unit/domain/product/`

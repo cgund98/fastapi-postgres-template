@@ -7,7 +7,7 @@ from uuid import UUID
 
 
 @dataclass
-class CreateInvoice:
+class CreateInvoiceCommand:
     """Command for creating a new invoice."""
 
     id: UUID

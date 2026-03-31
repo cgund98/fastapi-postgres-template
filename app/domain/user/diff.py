@@ -1,10 +1,10 @@
 """User domain diff utilities."""
 
-from app.domain.user.commands import UserUpdate
+from app.domain.user.commands import UserUpdateCommand
 from app.domain.user.model import User
 
 
-def generate_user_changes(user_update: UserUpdate, original_user: User) -> dict[str, dict[str, str]]:
+def generate_user_changes(user_update: UserUpdateCommand, original_user: User) -> dict[str, dict[str, str]]:
     """
     Generate a dictionary of changes between UserUpdate and original User.
 

@@ -175,8 +175,8 @@ async def test_mark_invoice_paid(
 
     # Verify event was published
     mock_event_publisher.publish.assert_called()
-    published_event = mock_event_publisher.publish.call_args[0][0]
-    assert published_event.aggregate_id == str(invoice_id)
+    publish_args = mock_event_publisher.publish.call_args[0][0]
+    assert publish_args.payload.aggregate_id() == str(invoice_id)
 
 
 @pytest.mark.asyncio
@@ -268,8 +268,8 @@ async def test_request_payment(
 
     # Verify event was published
     mock_event_publisher.publish.assert_called()
-    published_event = mock_event_publisher.publish.call_args[0][0]
-    assert published_event.aggregate_id == str(invoice_id)
+    publish_args = mock_event_publisher.publish.call_args[0][0]
+    assert publish_args.payload.aggregate_id() == str(invoice_id)
 
 
 @pytest.mark.asyncio

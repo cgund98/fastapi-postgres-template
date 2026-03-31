@@ -24,21 +24,20 @@ RUN pip install --no-cache-dir poetry==2.2.1
 # Install Poetry export plugin
 RUN poetry self add poetry-plugin-export
 
-# Configure Poetry: Create virtual environment in project directory (.venv)
-# Set this both as environment variable and via poetry config
-ENV POETRY_VENV_IN_PROJECT=true \
-    POETRY_NO_INTERACTION=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
-
 # Install AWS CLI v2
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip -q awscliv2.zip && \
     ./aws/install && \
     rm -rf awscliv2.zip aws
 
-# Set permissions for Python cache and Poetry directories
-RUN mkdir -p /tmp/poetry_cache /home/workspace/.cache/pypoetry && \
-    chown -R workspace:workspace /tmp/poetry_cache /home/workspace/.cache
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache \
+    VIRTUAL_ENV=/home/workspace/.venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Set permissions for Python cache, Poetry, and venv directories
+RUN mkdir -p /tmp/poetry_cache /home/workspace/.cache/pypoetry "$VIRTUAL_ENV" && \
+    chown -R workspace:workspace /tmp/poetry_cache /home/workspace/.cache "$VIRTUAL_ENV"
 
 # Disable AWS CLI pager for non-interactive use
 ENV AWS_PAGER=""
@@ -50,8 +49,7 @@ RUN chown -R workspace:workspace /workspace
 # Switch to non-root user
 USER workspace
 
-# Configure Poetry for workspace user: Create virtual environment in project directory (.venv)
-RUN poetry config virtualenvs.in-project true
+RUN python -m venv "$VIRTUAL_ENV"
 
 # Default command
 CMD ["/bin/bash"]
