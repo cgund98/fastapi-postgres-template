@@ -17,8 +17,11 @@ from app.domain.events.registry.billing.v1.invoice import (
     InvoicePaidEvent,
     InvoicePaymentRequestedEvent,
 )
-from app.domain.exceptions import BusinessRuleError, NotFoundError
+from app.domain.exceptions import NotFoundError
 from app.domain.user.repo import UserRepository
+from app.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class InvoiceService[TContext]:
@@ -79,7 +82,8 @@ class InvoiceService[TContext]:
 
             # Validate business rule
             if invoice.status == InvoiceStatus.PAID:
-                raise BusinessRuleError("Invoice is already paid")
+                logger.warning("Invoice is already paid", invoice_id=invoice_id)
+                return invoice
 
             # Create updated invoice with paid status and updated timestamp
             updated_invoice = Invoice(

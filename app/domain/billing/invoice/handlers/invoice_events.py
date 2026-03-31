@@ -20,9 +20,10 @@ class InvoiceCreatedEventHandler(EventHandler[InvoiceCreatedEvent]):
         logger.info(
             f"Processing {InvoiceEventTypes.CREATED} event",
             event_id=envelope.id,
-            aggregate_id=event.aggregate_id,
+            invoice_id=event.invoice_id,
             user_id=event.user_id,
             amount=str(event.amount),
+            correlation_id=envelope.attributes.correlation_id,
         )
         # Add your business logic here
         # Example: send invoice email, update accounting system, etc.
@@ -36,9 +37,10 @@ class InvoicePaidEventHandler(EventHandler[InvoicePaidEvent]):
         logger.info(
             f"Processing {InvoiceEventTypes.PAID} event",
             event_id=envelope.id,
-            aggregate_id=event.aggregate_id,
+            invoice_id=event.invoice_id,
             user_id=event.user_id,
             amount=str(event.amount),
+            correlation_id=envelope.attributes.correlation_id,
         )
         # Add your business logic here
         # Example: update payment records, trigger fulfillment, etc.

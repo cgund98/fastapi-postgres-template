@@ -28,7 +28,8 @@ class InvoicePaymentRequestedHandler(EventHandler[InvoicePaymentRequestedEvent])
         logger.info(
             f"Processing {InvoiceEventTypes.PAYMENT_REQUESTED} event",
             event_id=envelope.id,
-            aggregate_id=event.aggregate_id,
+            invoice_id=event.invoice_id,
+            correlation_id=envelope.attributes.correlation_id,
         )
 
         # Use transaction manager which creates a session per transaction
@@ -43,4 +44,5 @@ class InvoicePaymentRequestedHandler(EventHandler[InvoicePaymentRequestedEvent])
         logger.info(
             "Successfully marked invoice as paid",
             invoice_id=event.invoice_id,
+            correlation_id=envelope.attributes.correlation_id,
         )

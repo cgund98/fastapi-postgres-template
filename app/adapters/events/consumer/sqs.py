@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from botocore.exceptions import ClientError
 
 from app.domain.events.consumer import EventConsumer
+from app.domain.events.correlation import correlation_id_context
 from app.domain.events.registry.envelope import Envelope
 from app.domain.events.router import EventRouter
 from app.observability.logging import get_logger
@@ -64,7 +65,9 @@ class SQSConsumer(EventConsumer):
         try:
             envelope = self.parse_envelope(message)  # type: ignore[arg-type]
 
-            await router.route(envelope)
+            with correlation_id_context(envelope.attributes.correlation_id):
+                await router.route(envelope)
+
             await self.ack(receipt_handle)
         except Exception:
             logger.exception("Error processing message", receipt_handle=message["ReceiptHandle"], exc_info=True)
